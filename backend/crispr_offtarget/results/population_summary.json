@@ -1,0 +1,21 @@
+{
+  "baseline_auroc": 0.748843246864728,
+  "population_aurocs": {
+    "AFR": 0.7521,
+    "AMR": 0.7476,
+    "SAS": 0.7488,
+    "EAS": 0.7477,
+    "FIN": 0.7488,
+    "EUR": 0.7493
+  },
+  "auroc_variance": 1.0060192616372392,
+  "risky_grnas_count": 75,
+  "populations_analyzed": [
+    "AFR",
+    "AMR",
+    "SAS",
+    "EAS",
+    "FIN",
+    "EUR"
+  ]
+}

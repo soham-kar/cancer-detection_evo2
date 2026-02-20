@@ -1,0 +1,2 @@
+heuristic_auroc,evo2_only_auroc,combined_auroc,improvement_vs_heuristic,success
+0.740678,0.6508115000000001,0.744288,0.003610000000000002,False

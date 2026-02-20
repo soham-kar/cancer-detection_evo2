@@ -1,0 +1,1 @@
+patient_id,sex,chrom,pos,ref,alt,gene,consequence,variant_type,vaf,qual,depth,position,reference,alternative,gene_symbol,delta_score,prediction,classification_confidence,classification_source,population_frequency,acmg_evidence,literature_context,is_indel

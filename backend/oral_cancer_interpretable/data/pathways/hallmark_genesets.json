@@ -1,0 +1,122 @@
+{
+  "HALLMARK_P53_PATHWAY": [
+    "TP53",
+    "MDM2",
+    "CDKN1A",
+    "BAX",
+    "BBC3",
+    "GADD45A",
+    "FAS",
+    "TNFRSF10B",
+    "SERPINE1",
+    "IGFBP3"
+  ],
+  "HALLMARK_APOPTOSIS": [
+    "CASP8",
+    "CASP3",
+    "CASP9",
+    "BCL2",
+    "BAD",
+    "BAK1",
+    "BID",
+    "CYCS",
+    "APAF1",
+    "BIRC5"
+  ],
+  "HALLMARK_NOTCH_SIGNALING": [
+    "NOTCH1",
+    "NOTCH2",
+    "JAG1",
+    "DLL1",
+    "HES1",
+    "HEY1",
+    "MAML1",
+    "RBPJ",
+    "NUMB",
+    "APH1A"
+  ],
+  "HALLMARK_PI3K_AKT_MTOR_SIGNALING": [
+    "PIK3CA",
+    "AKT1",
+    "AKT2",
+    "MTOR",
+    "PTEN",
+    "TSC1",
+    "TSC2",
+    "RICTOR",
+    "RPTOR",
+    "EIF4EBP1"
+  ],
+  "HALLMARK_DNA_REPAIR": [
+    "BRCA1",
+    "BRCA2",
+    "RAD51",
+    "ATM",
+    "ATR",
+    "CHEK1",
+    "CHEK2",
+    "XRCC1",
+    "XRCC5",
+    "PARP1"
+  ],
+  "HALLMARK_EPITHELIAL_MESENCHYMAL_TRANSITION": [
+    "CDH1",
+    "CDH2",
+    "VIM",
+    "SNAI1",
+    "SNAI2",
+    "TWIST1",
+    "ZEB1",
+    "ZEB2",
+    "FN1",
+    "MMP2"
+  ],
+  "HALLMARK_G2M_CHECKPOINT": [
+    "CDK1",
+    "CCNB1",
+    "CCNB2",
+    "PLK1",
+    "AURKA",
+    "BUB1",
+    "CDC20",
+    "CDKN2A",
+    "CDKN2B",
+    "CDC25C"
+  ],
+  "HALLMARK_HYPOXIA": [
+    "HIF1A",
+    "VEGFA",
+    "LDHA",
+    "PDK1",
+    "SLC2A1",
+    "ENO1",
+    "PGK1",
+    "ALDOA",
+    "GAPDH",
+    "PKM"
+  ],
+  "HALLMARK_MYC_TARGETS_V1": [
+    "MYC",
+    "MYCN",
+    "MAX",
+    "CDK4",
+    "CDK6",
+    "CCND1",
+    "CCND2",
+    "E2F1",
+    "ODC1",
+    "NCL"
+  ],
+  "HALLMARK_WNT_BETA_CATENIN_SIGNALING": [
+    "CTNNB1",
+    "APC",
+    "AXIN1",
+    "GSK3B",
+    "TCF7",
+    "LEF1",
+    "DVL1",
+    "FZD1",
+    "WNT3A",
+    "LRP5"
+  ]
+}

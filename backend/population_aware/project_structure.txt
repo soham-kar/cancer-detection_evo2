@@ -1,0 +1,245 @@
+﻿Folder PATH listing for volume Local Disk
+Volume serial number is 62BF-7B8F
+D:\PROJECT\BIOTECH-EVO2\BACKEND\POPULATION_AWARE
+|   analyze_asian_variants.py
+|   analyze_calibration_impact.py
+|   analyze_multigene.py
+|   analyze_three_populations.py
+|   calibrate_global.py
+|   calibrate_multigene.py
+|   calibrate_scores.py
+|   CLEANUP_ANALYSIS.md
+|   cleanup_scripts.ps1
+|   COMPARISON_MAIN_VS_MODAL.md
+|   create_enhanced_population_viz.py
+|   create_figure3_bf.py
+|   create_final_hero_viz.py
+|   create_final_statistical_panel.py
+|   create_publication_materials.py
+|   cross_validate_genes.py
+|   day1_add_gnomad.py
+|   day1_fetch_sequences.py
+|   day2_validate_accuracy.py
+|   day3_create_atlas.py
+|   download_clinvar.ps1
+|   explore_population_bias.py
+|   generate_mock_scores.py
+|   generate_real_metrics.py
+|   generate_tables.py
+|   GETTING_STARTED.md
+|   modal_evo2_production.py
+|   MODAL_QUICKSTART.md
+|   modal_score_evo2.py
+|   modal_score_evo2_simple.py
+|   MODAL_SETUP.md
+|   organize_global_results.py
+|   population_thresholds.py
+|   project_structure.txt
+|   PYSAM_INSTALL_FIX.md
+|   README.md
+|   requirements.txt
+|   run_atlas.py
+|   run_atlas_fixed.py
+|   RUN_DAY1_NOW.md
+|   score_brca2.py
+|   score_brca2_simple.py
+|   score_palb2.py
+|   score_palb2_simple.py
+|   score_sample_400.py
+|   step1_curate_clinvar_genes.py
+|   STUCK_SCRIPT_FIX.md
+|   test_evo2_simple.py
+|   test_palb2.py
+|   UBUNTU_SETUP_COMPLETE.md
+|   validate_real_evo2.py
+|   visualize_global_heroes.py
+|   visualize_hero_variants.py
+|   visualize_real_evo2.py
+|   WSL2_SETUP.md
+|   
++---archived
+|       bayesian_enhanced.py
+|       bayesian_fixed.py
+|       bayesian_optimized.py
+|       bayesian_triage.py
+|       bayesian_tuned.py
+|       
++---data
+|       clinvar.vcf.gz
+|       clinvar.vcf.gz.tbi
+|       download_chr16.ps1
+|       download_chr17.ps1
+|       download_gnomad_force.ps1
+|       gnomad.genomes.v4.0.sites.chr13.vcf.bgz
+|       gnomad.genomes.v4.0.sites.chr13.vcf.bgz.tbi
+|       gnomad.genomes.v4.0.sites.chr16.vcf.bgz
+|       gnomad.genomes.v4.0.sites.chr16.vcf.bgz.tbi
+|       gnomad.genomes.v4.0.sites.chr17.vcf.bgz
+|       gnomad.genomes.v4.0.sites.chr17.vcf.bgz.tbi
+|       NEXT_STEPS.md
+|       
++---multi_gene
+|   |   brca2_score_evo2.py
+|   |   combined_sample_scores.csv
+|   |   palb2_score_evo2.py
+|   |   README.md
+|   |   run_curation.sh
+|   |   run_sequence_fetching.sh
+|   |   score_evo2_simple.py
+|   |   score_evo2_working.py
+|   |   WSL_INSTRUCTIONS.md
+|   |   
+|   +---brca1_findlay
+|   +---brca2_clinvar
+|   |       brca2_clinvar_curated.csv
+|   |       brca2_curate_clinvar.py
+|   |       brca2_fetch_sequences.py
+|   |       brca2_ready_for_evo2.csv
+|   |       
+|   +---meta_analysis
+|   +---palb2_clinvar
+|   |       palb2_clinvar_curated.csv
+|   |       palb2_curate_clinvar.py
+|   |       palb2_fetch_sequences.py
+|   |       palb2_ready_for_evo2.csv
+|   |       palb2_test_scores.csv
+|   |       
+|   \---__pycache__
+|           brca2_score_evo2.cpython-312.pyc
+|           palb2_score_evo2.cpython-312.pyc
+|           score_evo2_simple.cpython-312.pyc
+|           score_evo2_working.cpython-312.pyc
+|           
++---production
+|   |   analyze_multigene.py
+|   |   calibrate_global.py
+|   |   calibrate_multigene.py
+|   |   create_figure1_publication.py
+|   |   create_final_hero_viz.py
+|   |   create_final_statistical_panel.py
+|   |   create_publication_materials.py
+|   |   generate_real_metrics.py
+|   |   population_thresholds.py
+|   |   
+|   \---results
+|       \---publication_figures
+|               figure1a_multigene_threshold_variation.png
+|               figure1b_honest_confidence.png
+|               figure2b_pie_chart_only.png
+|               figure3_bayes_factor_analysis.png
+|               FINAL_global_hero_variants.png
+|               hero_plot_population_calibration.png
+|               
++---results
+|   |   brca1_atlas_heatmap.png
+|   |   brca1_evo2_calibrated.csv
+|   |   brca1_evo2_scores.csv
+|   |   brca1_evo2_scores_REAL.csv
+|   |   brca1_global_calibration.csv
+|   |   brca1_ready_for_evo2.csv
+|   |   brca1_with_gnomad.csv
+|   |   calibration_case_studies.csv
+|   |   calibration_comparison.png
+|   |   confusion_matrix.png
+|   |   evo2_vs_findlay_scatter.png
+|   |   FINAL_global_hero_variants.png
+|   |   FINAL_statistical_panel.png
+|   |   global_hero_variants.png
+|   |   global_population_bias_distribution.png
+|   |   hero_variant_shift.png
+|   |   mock_generation_metadata.json
+|   |   multigene_distribution.png
+|   |   multigene_metrics.csv
+|   |   multigene_roc_comparison.png
+|   |   population_bias_distribution.png
+|   |   precision_recall_curve.png
+|   |   roc_curve.png
+|   |   score_distributions.png
+|   |   summary_statistics.csv
+|   |   table4_global_hero_variants.csv
+|   |   three_population_comparison.png
+|   |   three_population_summary.csv
+|   |   validation_metrics.json
+|   |   
+|   +---bayesian_enhanced
+|   |       bayesian_summary_stats.csv
+|   |       brca1_bayesian_enhanced.csv
+|   |       enhanced_bayesian_framework.png
+|   |       
+|   +---bayesian_exploration
+|   |   +---bayesian_fixed
+|   |   +---bayesian_optimized
+|   |   |       brca1_bayesian_optimized.csv
+|   |   |       diagnostic_validation.png
+|   |   |       
+|   |   \---bayesian_tuned
+|   |           brca1_bayesian_tuned.csv
+|   |           diagnostic_tuned.png
+|   |           
+|   +---bayesian_triage
+|   |       brca1_bayesian_triage.csv
+|   |       confidence_tent_plot.png
+|   |       posterior_distributions.png
+|   |       
+|   +---evo2_results
+|   |       brca1_atlas_heatmap.png
+|   |       brca1_evo2_scores.csv
+|   |       confusion_matrix.png
+|   |       evo2_vs_findlay_scatter.png
+|   |       precision_recall_curve.png
+|   |       roc_curve.png
+|   |       score_distributions.png
+|   |       summary_statistics.csv
+|   |       validation_metrics.json
+|   |       
+|   +---global_population_analysis
+|   |       brca1_global_calibration.csv
+|   |       FINAL_global_hero_variants.png
+|   |       FINAL_statistical_panel.png
+|   |       global_hero_variants.png
+|   |       global_population_bias_distribution.png
+|   |       QUICK_REFERENCE.md
+|   |       README.md
+|   |       table4_global_hero_variants.csv
+|   |       three_population_comparison.png
+|   |       three_population_comparison_enhanced.png
+|   |       three_population_summary.csv
+|   |       
+|   +---multigene_calibration
+|   |       brca2_evo2_scores.csv
+|   |       multigene_summary.csv
+|   |       palb2_evo2_scores.csv
+|   |       
+|   \---population_thresholds
+|           brca1_population_thresholds.csv
+|           figure2b_confidence_distribution.png
+|           figure2b_pie_chart_only.png
+|           figure3_bayes_factor_analysis.png
+|           hero_plot_population_calibration.png
+|           population_threshold_analysis.png
+|           real_impact_metrics.csv
+|           rescue_cases_real.csv
+|           table3_population_thresholds.csv
+|           
++---utils
+|   |   gnomad_client.py
+|   |   gnomad_client_local.py
+|   |   liftover.py
+|   |   __init__.py
+|   |   
+|   \---__pycache__
+|           gnomad_client.cpython-312.pyc
+|           gnomad_client_local.cpython-312.pyc
+|           liftover.cpython-312.pyc
+|           __init__.cpython-312.pyc
+|           
+\---__pycache__
+        modal_evo2_production.cpython-312.pyc
+        modal_score_evo2.cpython-312.pyc
+        modal_score_evo2_simple.cpython-312.pyc
+        run_atlas.cpython-312.pyc
+        run_atlas_fixed.cpython-312.pyc
+        score_palb2_simple.cpython-312.pyc
+        score_sample_400.cpython-312.pyc
+        test_palb2.cpython-312.pyc
+        

@@ -1,0 +1,72 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String    @id @default(cuid())
+  clerkId          String    @unique
+  email            String    @unique
+  credits          Int       @default(5)
+  stripeCustomerId String?   @unique
+  freeRunsToday    Int       @default(0)
+  cooldownUntil    DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  payments         Payment[]
+  analysisReports  AnalysisReport[]
+
+  @@map("users")
+}
+
+model Payment {
+  id             String   @id @default(cuid())
+  sessionId      String   @unique
+  creditsGranted Int
+  clerkUserId    String
+  createdAt      DateTime @default(now())
+
+  user User @relation(fields: [clerkUserId], references: [clerkId])
+
+  @@map("payments")
+}
+
+model AnalysisReport {
+  id                       String   @id @default(cuid())
+  clerkUserId              String
+  geneSymbol               String
+  chromosome               String
+  position                 Int
+  reference                String
+  alternative              String
+  genomeId                 String
+  prediction               String
+  deltaScore               Float
+  classificationConfidence Float
+  classificationSource     String?
+  // ClinVar data for comparison
+  clinvarClassification    String?
+  variationType            String?
+  clinvarId                String?
+  // Store enrichment data as JSON
+  populationFrequency      Json?
+  acmgEvidence             Json?
+  literatureContext        Json?
+  // Analysis source: 'clinvar' or 'custom'
+  analysisSource           String?
+  createdAt                DateTime @default(now())
+
+  user User @relation(fields: [clerkUserId], references: [clerkId])
+
+  @@index([clerkUserId])
+  @@index([geneSymbol])
+  @@map("analysis_reports")
+}

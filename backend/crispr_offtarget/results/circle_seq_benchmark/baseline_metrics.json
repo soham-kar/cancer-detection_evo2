@@ -1,0 +1,9 @@
+{
+  "mismatch_auroc": 0.7079864087024448,
+  "mismatch_auprc": 0.029749942089086278,
+  "seed_auroc": 0.7839216190446097,
+  "seed_auprc": 0.04448422598914837,
+  "n_samples": 584949,
+  "n_positives": 7371,
+  "n_negatives": 577578
+}

@@ -1,0 +1,9 @@
+modal
+matplotlib
+pandas
+seaborn
+scikit-learn
+openpyxl
+redis>=5.0.0
+upstash-redis>=0.15.0
+groq>=0.4.0

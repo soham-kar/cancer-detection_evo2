@@ -1,0 +1,11 @@
+{
+  "benchmark": "Kleinstiver_2015",
+  "n_samples": 108,
+  "n_positives": 54,
+  "scoring_results": {
+    "mismatch_count": 0.9014060356652949,
+    "evo2_with_seed": 0.7621742112482854,
+    "raw_evo2": 0.5694444444444444
+  },
+  "key_finding": "Mismatch count dominates (0.90). Raw Evo2 (0.57) improves with seed penalty (0.76)."
+}

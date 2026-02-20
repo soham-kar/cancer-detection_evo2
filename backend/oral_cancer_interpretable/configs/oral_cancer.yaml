@@ -1,0 +1,53 @@
+# Oral Cancer Interpretable Configuration
+
+# Data settings
+tcga:
+  project: "TCGA-HNSC"
+  data_type: "Gene Expression Quantification"
+  workflow: "HTSeq - Counts"
+  # ICD-O-3 site codes for oral cavity
+  oral_cavity_sites:
+    - "C02"  # Tongue (mobile portion)
+    - "C03"  # Gum
+    - "C04"  # Floor of mouth
+    - "C05"  # Palate
+    - "C06"  # Other and unspecified parts of mouth
+  min_samples: 50
+
+# Pathway settings  
+pathways:
+  source: "msigdb"
+  collection: "h.all"  # Hallmark gene sets
+  min_genes: 10
+  max_genes: 500
+
+# Model architecture
+model:
+  gene_embedding_dim: 128
+  pathway_embedding_dim: 256
+  n_attention_heads: 4
+  dropout: 0.3
+  
+# Training
+training:
+  epochs: 100
+  batch_size: 32
+  learning_rate: 0.001
+  early_stopping_patience: 10
+  survival_loss: "cox"  # Cox proportional hazards
+
+# Evo2 integration
+evo2:
+  enabled: false  # Phase 2
+  model: "evo2_7b"
+  window_size: 8192
+  regulatory_regions:
+    - "promoter"
+    - "enhancer"
+    - "5utr"
+
+# Output
+output:
+  figures_dir: "results/figures"
+  models_dir: "results/models"
+  attention_maps: true

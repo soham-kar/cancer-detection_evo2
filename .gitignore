@@ -1,0 +1,117 @@
+# =============================================================
+# Python
+# =============================================================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+dist/
+build/
+*.whl
+
+# =============================================================
+# Virtual environments
+# =============================================================
+.venv/
+venv/
+env/
+ENV/
+backend/venv/
+
+# =============================================================
+# IDE / Editor / OS
+# =============================================================
+.vscode/
+.idea/
+*.suo
+*.user
+.amazonq/
+.DS_Store
+Thumbs.db
+
+# =============================================================
+# Jupyter
+# =============================================================
+.ipynb_checkpoints/
+*.ipynb
+
+# =============================================================
+# LARGE GENOMIC DATA FILES (too big for GitHub — 100MB limit)
+# =============================================================
+
+# Genome FASTA files (~3 GB each)
+*.fa
+*.fasta
+*.fa.fai
+*.fasta.fai
+
+# VCF / BCF variant files (gnomAD ~79 GB, India project ~26 GB, clinvar)
+*.vcf
+*.vcf.gz
+*.vcf.gz.tbi
+*.bcf
+*.bcf.csi
+
+# BAM / CRAM alignment files
+*.bam
+*.bam.bai
+*.cram
+*.crai
+
+# Compressed archives of large data
+*.gz
+*.tar
+*.tar.gz
+*.zip
+*.bgz
+
+# Numpy / pickle / HDF5 model/data dumps
+*.npy
+*.npz
+*.h5
+*.hdf5
+*.pkl
+*.pickle
+
+# JSON data dumps > a few MB (change_seq sequences 1.5 GB)
+backend/crispr_offtarget/data/change_seq/change_seq_8kb_sequences.json
+
+# Specific large data directories
+backend/population_aware/data/
+backend/crispr_offtarget/data/genome/
+backend/crispr_offtarget/data/hg19.fa
+backend/crispr_offtarget/data/change_seq/raw/
+
+# Specific large CSV files (>90 MB — exceed GitHub's 100 MB limit)
+backend/crispr_offtarget/data/benchmark/circle_seq/input_8kb.csv
+backend/population_aware/multi_gene/brca2_clinvar/brca2_ready_for_evo2.csv
+
+# Large result files that can be regenerated
+backend/population_aware/results/
+helixmind_benchmark_results.csv
+clinvar_benchmark_4k_stratified.csv
+evo2_real_validation_results.json
+analysis_output.txt
+
+# =============================================================
+# Large media / documents
+# =============================================================
+*.pdf
+Gemini_Generated_Image_*.png
+
+# =============================================================
+# Secrets / API keys — NEVER commit these
+# =============================================================
+.env
+*.env
+secrets.py
+config_secrets.*
+*_key.json
+*_credentials.json
+
+# =============================================================
+# Modal / cloud artifacts
+# =============================================================
+.modal/

@@ -1,0 +1,15 @@
+
+--- Sheet: circleSeq ---
+Columns: ['Chromosome', 'Start', 'End', 'Summary', 'Read', 'Strand', 'Off-target Sequence', 'Distance', 'Length', 'Targetsite', 'Cell', 'TargetSequence']
+  'Chromosome'
+  'Start'
+  'End'
+  'Summary'
+  'Read'
+  'Strand'
+  'Off-target Sequence'
+  'Distance'
+  'Length'
+  'Targetsite'
+  'Cell'
+  'TargetSequence'

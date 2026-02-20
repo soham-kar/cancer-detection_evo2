@@ -1,0 +1,12 @@
+{
+  "n_samples": 500,
+  "n_validated": 428,
+  "imbalance_ratio": 1.1682242990654206,
+  "AUROC": 0.33073727933541014,
+  "AUPRC": 0.8177468238989023,
+  "seed_score_mean": -0.04046178419875051,
+  "nonseed_score_mean": -0.01803763099970874,
+  "seed_stronger_signal": true,
+  "ttest_p_value": 3.583819033126807e-58,
+  "high_confidence_pct": 3.5999999999999996
+}

@@ -1,0 +1,8 @@
+{
+  "auroc": 0.681755829903978,
+  "auprc": 0.7259613449610196,
+  "n_samples": 108,
+  "n_positives": 54,
+  "n_negatives": 54,
+  "dataset": "Kleinstiver 2015 (Nature)"
+}

@@ -1,0 +1,15 @@
+{
+  "total_sites": 636,
+  "high_confidence_count": 215,
+  "moderate_confidence_count": 264,
+  "low_confidence_count": 157,
+  "high_confidence_pct": 33.80503144654088,
+  "high_precision": 1.0,
+  "moderate_precision": 0.8825757575757576,
+  "low_precision": 0.643312101910828,
+  "high_coverage": 0.39162112932604737,
+  "cost_validate_all": 636000,
+  "cost_high_only": 215000,
+  "cost_savings": 421000,
+  "savings_pct": 66.19496855345912
+}
