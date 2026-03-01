@@ -291,6 +291,29 @@ export async function fetchGeneSequence(
   }
 }
 
+/**
+ * Fetch the single reference nucleotide at a genomic position.
+ * Used to resolve "N>A" → "T>A" when user types a position manually.
+ */
+export async function fetchSingleBase(
+  chrom: string,
+  position: number,
+  genomeId: string,
+): Promise<string> {
+  try {
+    const chromosome = chrom.startsWith("chr") ? chrom : `chr${chrom}`;
+    // UCSC API uses 0-based half-open intervals
+    const apiUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${genomeId};chrom=${chromosome};start=${position - 1};end=${position}`;
+    const response = await fetch(apiUrl);
+    if (!response.ok) return "";
+    const data = await response.json();
+    if (data.error || !data.dna) return "";
+    return data.dna.toUpperCase();
+  } catch {
+    return "";
+  }
+}
+
 export async function fetchClinvarVariants(
   chrom: string,
   geneBound: GeneBounds,

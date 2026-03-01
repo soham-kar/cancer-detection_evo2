@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 
 # Use environment variable for Entrez email
 Entrez.email = os.getenv("ENTREZ_EMAIL", "biotech-evo2@example.com")
+if os.getenv("NCBI_API_KEY"):
+    Entrez.api_key = os.getenv("NCBI_API_KEY")
 
 
 # =============================================================================
@@ -370,12 +372,14 @@ class PubMedRAG:
         try:
             # Focused search for clinically relevant articles
             query = f"{gene_symbol}[Gene] AND (pathogenic OR variant OR mutation) AND humans[MeSH]"
+            logger.info(f"PubMed searching: {query}")
             
             handle = Entrez.esearch(db="pubmed", term=query, retmax=max_results, sort="relevance")
             record = Entrez.read(handle)
             handle.close()
             
             ids = record.get("IdList", [])
+            logger.info(f"PubMed found {len(ids)} IDs for {gene_symbol}: {ids}")
             if not ids:
                 return []
             
@@ -408,11 +412,14 @@ class PubMedRAG:
                         "title": title,
                         "abstract": abstract[:1500]  # Limit abstract length
                     })
-                except Exception:
-                    continue            
-            return results            
+                except Exception as parse_err:
+                    logger.warning(f"PubMed article parse error: {parse_err}")
+                    continue
+            
+            logger.info(f"PubMed returning {len(results)} articles for {gene_symbol}")
+            return results
         except Exception as e:
-            logger.warning(f"PubMed search error for {gene_symbol}: {e}")
+            logger.error(f"PubMed search FAILED for {gene_symbol}: {type(e).__name__}: {e}")
             return []
     
     def _generate_summary(self, gene_symbol: str, articles: List[Dict]) -> str:

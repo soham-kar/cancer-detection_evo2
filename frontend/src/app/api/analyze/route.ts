@@ -106,6 +106,32 @@ export async function POST(request: NextRequest) {
         // Call the Modal/GPU analysis endpoint
         const analysisResult = await callModalAnalysis(body);
 
+        // Call VEP annotation in parallel (fire-and-forget style — failure is OK)
+        let vepAnnotation: unknown = null;
+        try {
+            // Use the correct reference from Modal analysis instead of input (which might be ambiguous like "N")
+            const correctReference = analysisResult.reference || body.reference || "N";
+            
+            const vepRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/vep`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    chromosome: body.chromosome,
+                    position: body.variant_position,
+                    reference: correctReference,
+                    alternative: body.alternative,
+                }),
+                signal: AbortSignal.timeout(10000), // 10s max for VEP
+            });
+            if (vepRes.ok) {
+                const vepData = await vepRes.json() as { vep: unknown };
+                vepAnnotation = vepData.vep ?? null;
+            }
+        } catch {
+            // VEP timeout or network error — continue without it
+            console.warn("⚠️ VEP annotation failed — continuing without it");
+        }
+
         // Save the analysis result to database
         try {
             await db.analysisReport.create({
@@ -128,6 +154,7 @@ export async function POST(request: NextRequest) {
                     acmgEvidence: analysisResult.acmg_evidence || null,
                     literatureContext: analysisResult.literature_context || null,
                     analysisSource: body.analysis_source || null,
+                    vepAnnotation: vepAnnotation ?? undefined,
                 },
             });
             console.log("✅ Analysis saved to database");

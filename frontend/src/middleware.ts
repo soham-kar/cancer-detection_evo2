@@ -5,6 +5,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 const isPublicRoute = createRouteMatcher([
     "/demo(.*)",          // Demo page for guest mode
     "/api/demo-analyze",  // Guest demo API endpoint
+    "/api/vep",           // VEP annotation (called from authenticated context)
     "/sign-in(.*)",
     "/sign-up(.*)",
 ]);

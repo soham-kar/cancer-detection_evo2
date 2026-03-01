@@ -202,7 +202,7 @@ app = modal.App(
     secrets=[
         # modal.Secret.from_name("redis-credentials"),  # DISABLED: Redis not needed for basic scoring
         modal.Secret.from_name("entrez-config"),
-        # modal.Secret.from_name("groq-config"),  # DISABLED: RAG/LLM not needed for basic scoring
+        modal.Secret.from_name("groq-config"),  # For LLM-powered literature summaries
     ]
 )
 volume = modal.Volume.from_name("hf_cache", create_if_missing=True)
@@ -479,23 +479,23 @@ class Evo2Model:
         )
         
         # =====================================================================
-        # STEP 5: Multi-Modal RAG (PubMed + ClinVar + UniProt)
+        # STEP 5: Literature Context (PubMed direct + optional Tri-Modal RAG)
         # =====================================================================
         lit_context = None
         rag_level = None
         rag_sources = None
         if gene_symbol:
+            # Always run direct PubMed search first (reliable, no deployment needed)
+            lit_context = self.clinical_enricher.pubmed.get_literature_context(gene_symbol)
+            logger.info(f"PubMed search: {lit_context.num_articles_found} articles for {gene_symbol}")
+
+            # Optionally enhance with Tri-Modal RAG (PubMed + ClinVar + UniProt) if deployed
             try:
-                # Connect to the deployed MultiModalRAG service (NEW Modal SDK API)
                 rag_function = modal.Function.lookup("multimodal-rag", "MultiModalRAG.search_and_synthesize")
-                
-                # Build variant string for search
                 variant_str = f"{provided_reference or reference}>{alternative}" if provided_reference or reference else alternative
-                
-                # Call the tri-modal RAG (PubMed + ClinVar + UniProt)
                 rag_result = rag_function.remote(gene_symbol, variant_str)
-                
                 if rag_result.get("found"):
+                    # Override with richer tri-modal result
                     lit_context = type('LitContext', (), {
                         'summary': rag_result.get("summary"),
                         'pubmed_ids': rag_result.get("pmids", []),
@@ -504,11 +504,9 @@ class Evo2Model:
                     })()
                     rag_level = rag_result.get("sources", {}).get("pubmed", {}).get("level")
                     rag_sources = rag_result.get("sources")
-                    logger.info(f"Multi-Modal RAG completed: {len(rag_result.get('pmids', []))} papers, ClinVar: {rag_result.get('clinvar_status')}")
+                    logger.info(f"Tri-Modal RAG enhanced: {lit_context.num_articles_found} papers")
             except Exception as e:
-                logger.warning(f"Multi-Modal RAG unavailable: {e}, falling back to basic lookup")
-                # Fallback to old method if RAG service is down
-                lit_context = self.clinical_enricher.pubmed.get_literature_context(gene_symbol)
+                logger.info(f"Tri-Modal RAG not available ({type(e).__name__}), using PubMed results")
         
         # =====================================================================
         # STEP 6: Build Enriched Response

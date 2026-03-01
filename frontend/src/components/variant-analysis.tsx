@@ -3,6 +3,7 @@
 import {
   type AnalysisResult,
   analyzeVariantWithAPI,
+  fetchSingleBase,
   type ClinvarVariant,
   type GeneBounds,
   type GeneFromSearch,
@@ -105,12 +106,19 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
       setNeedsCredits(false);
 
       try {
+        // Resolve reference base if not already known (fixes N>A display bug)
+        let resolvedReference = variantReference;
+        if (!resolvedReference) {
+          resolvedReference = await fetchSingleBase(chromosome, position, genomeId);
+          if (resolvedReference) setVariantReference(resolvedReference);
+        }
+
         const data = await analyzeVariantWithAPI({
           position,
           alternative: alt,
           genomeId,
           chromosome,
-          reference: variantReference || undefined,
+          reference: resolvedReference || undefined,
           geneSymbol: gene?.symbol,
           analysisSource: 'custom',
         });
@@ -278,6 +286,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                           className="h-7 cursor-pointer border-[#3c4f3d]/20 bg-[#e9eeea] text-xs text-[#3c4f3d] hover:bg-[#3c4f3d]/10"
                           onClick={() => {
                             setVariantAlternative(alt);
+                            setVariantReference(ref); // ← fixes N>A: pass ClinVar's parsed ref
                             handleVariantSubmit(
                               variantPosition.replaceAll(",", ""),
                               alt,

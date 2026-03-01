@@ -62,6 +62,8 @@ model AnalysisReport {
   literatureContext        Json?
   // Analysis source: 'clinvar' or 'custom'
   analysisSource           String?
+  // VEP annotation: consequence, aaChange, codons, etc.
+  vepAnnotation            Json?
   createdAt                DateTime @default(now())
 
   user User @relation(fields: [clerkUserId], references: [clerkId])
