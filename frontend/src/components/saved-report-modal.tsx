@@ -8,6 +8,7 @@ import { VariantSequenceContext } from "./variant-sequence-context";
 import { GeneDomainMap } from "./gene-domain-map";
 import { VariantMechanismExplainer } from "./variant-mechanism-explainer";
 import type { VEPAnnotation } from "~/app/api/vep/route";
+import { FormattedClinicalSummary } from "./formatted-clinical-summary";
 
 interface SavedReport {
     id: string;
@@ -609,7 +610,7 @@ Cross-references:
                         {report.literatureContext?.summary && (
                             <div className="mt-4 rounded-md bg-white p-3">
                                 <div className="text-xs font-medium text-[#3c4f3d]/70 mb-2">AI Clinical Summary</div>
-                                <div className="text-sm text-[#3c4f3d] leading-relaxed">{report.literatureContext.summary}</div>
+                                <FormattedClinicalSummary summary={report.literatureContext.summary} />
                             </div>
                         )}
                     </div>

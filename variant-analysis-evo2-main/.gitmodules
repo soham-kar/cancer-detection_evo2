@@ -1,0 +1,3 @@
+[submodule "evo2-backend/evo2"]
+	path = evo2-backend/evo2
+	url = https://github.com/ArcInstitute/evo2

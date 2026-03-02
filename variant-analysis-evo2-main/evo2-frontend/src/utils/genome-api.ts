@@ -51,34 +51,9 @@ export interface ClinvarVariant {
     prediction: string;
     delta_score: number;
     classification_confidence: number;
-    // Clinical enrichment fields
-    population_frequency?: PopulationFrequency;
-    acmg_evidence?: ACMGEvidence;
-    literature_context?: LiteratureContext;
   };
   isAnalyzing?: boolean;
   evo2Error?: string;
-}
-
-export interface PopulationFrequency {
-  gnomad_af: number | null;
-  gnomad_max_pop_af: number | null;
-  source: string;
-  is_common_variant: boolean;
-}
-
-export interface ACMGEvidence {
-  code: string | null;
-  strength: string | null;
-  description: string;
-  clinical_note: string;
-}
-
-export interface LiteratureContext {
-  summary: string | null;
-  pubmed_ids: string[];
-  gene_function: string | null;
-  articles_found: number;
 }
 
 export interface AnalysisResult {
@@ -88,11 +63,6 @@ export interface AnalysisResult {
   delta_score: number;
   prediction: string;
   classification_confidence: number;
-  classification_source: string;
-  // Clinical enrichment fields
-  population_frequency?: PopulationFrequency;
-  acmg_evidence?: ACMGEvidence;
-  literature_context?: LiteratureContext;
 }
 
 export async function getAvailableGenomes() {
@@ -194,10 +164,10 @@ export async function searchGenes(query: string, genome: string) {
             chrom = `chr${chrom}`;
           }
           results.push({
-            symbol: display[1],  // Symbol is at index 1
-            name: display[2],    // description is at index 2
+            symbol: display[2],
+            name: display[3],
             chrom,
-            description: display[2],
+            description: display[3],
             gene_id: geneIds[i] || "",
           });
         } catch {
@@ -288,29 +258,6 @@ export async function fetchGeneSequence(
       actualRange: { start, end },
       error: "Internal error in fetch gene sequence",
     };
-  }
-}
-
-/**
- * Fetch the single reference nucleotide at a genomic position.
- * Used to resolve "N>A" → "T>A" when user types a position manually.
- */
-export async function fetchSingleBase(
-  chrom: string,
-  position: number,
-  genomeId: string,
-): Promise<string> {
-  try {
-    const chromosome = chrom.startsWith("chr") ? chrom : `chr${chrom}`;
-    // UCSC API uses 0-based half-open intervals
-    const apiUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${genomeId};chrom=${chromosome};start=${position - 1};end=${position}`;
-    const response = await fetch(apiUrl);
-    if (!response.ok) return "";
-    const data = await response.json();
-    if (data.error || !data.dna) return "";
-    return data.dna.toUpperCase();
-  } catch {
-    return "";
   }
 }
 
@@ -408,75 +355,27 @@ export async function analyzeVariantWithAPI({
   alternative,
   genomeId,
   chromosome,
-  geneSymbol,
 }: {
   position: number;
   alternative: string;
   genomeId: string;
   chromosome: string;
-  geneSymbol?: string;
 }): Promise<AnalysisResult> {
-  // Route through our credit-protected API
-  const url = "/api/analyze";
-
-  console.log("🔬 Calling Credit-Protected Analyze API:", {
-    url,
-    position,
-    alternative,
-    genomeId,
-    chromosome,
-    geneSymbol,
-  });
-
-  const requestBody = {
-    variant_position: position,
+  const queryParams = new URLSearchParams({
+    variant_position: position.toString(),
     alternative: alternative,
     genome: genomeId,
     chromosome: chromosome,
-    gene_symbol: geneSymbol,
-  };
-
-  console.log("📤 Request body being sent:", requestBody);
-
-  const response = await fetch(url, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(requestBody),
   });
 
-  const result = await response.json();
+  const url = `${env.NEXT_PUBLIC_ANALYZE_SINGLE_VARIANT_BASE_URL}?${queryParams.toString()}`;
+
+  const response = await fetch(url, { method: "POST" });
 
   if (!response.ok) {
-    // Handle credit-related errors
-    if (result.needsCredits) {
-      const error = new Error(result.message || "Not enough credits") as Error & {
-        needsCredits: boolean;
-        errorType: string;
-      };
-      error.needsCredits = true;
-      error.errorType = result.error;
-      throw error;
-    }
-
-    console.error("❌ API Error:", result);
-    throw new Error(result.message || "Failed to analyze variant");
+    const errorText = await response.text();
+    throw new Error("Failed to analyze variant " + errorText);
   }
 
-  console.log("✅ API Response:", result);
-
-  // Return the analysis result (Modal response is spread into the response)
-  return {
-    position: result.position || position,
-    reference: result.reference || reference || "",
-    alternative: result.alternative || alternative,
-    delta_score: result.delta_score,
-    prediction: result.prediction,
-    classification_confidence: result.classification_confidence,
-    classification_source: result.classification_source,
-    population_frequency: result.population_frequency,
-    acmg_evidence: result.acmg_evidence,
-    literature_context: result.literature_context,
-  };
+  return await response.json();
 }

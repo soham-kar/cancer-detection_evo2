@@ -6,6 +6,7 @@ import {
   getClassificationColorClasses,
   getNucleotideColorClass,
 } from "~/utils/coloring-utils";
+import { FormattedClinicalSummary } from "./formatted-clinical-summary";
 
 export function VariantComparisonModal({
   comparisonVariant,
@@ -428,9 +429,7 @@ export function VariantComparisonModal({
                         <div className="text-xs font-medium text-[#3c4f3d]/70 mb-2">
                           AI Clinical Summary
                         </div>
-                        <div className="text-sm text-[#3c4f3d] leading-relaxed">
-                          {comparisonVariant.evo2Result.literature_context.summary}
-                        </div>
+                        <FormattedClinicalSummary summary={comparisonVariant.evo2Result.literature_context.summary} />
                       </div>
                     )}
                   </div>

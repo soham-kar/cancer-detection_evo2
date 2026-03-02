@@ -58,12 +58,13 @@ const GENE_DB: Record<string, GeneStaticData> = {
         strand: '-',
         uniprotId: "P04637",
         domains: [
-            { name: "Transactivation I", start: 1, end: 40, color: "#f59e0b", description: "MDM2 binding; p300 interaction" },
-            { name: "Transactivation II", start: 40, end: 67, color: "#f59e0b", description: "Secondary transactivation domain" },
-            { name: "Proline-rich", start: 67, end: 98, color: "#22c55e", description: "Apoptosis regulation" },
-            { name: "DNA binding", start: 102, end: 292, color: "#ef4444", description: "Core domain; 90% of cancer mutations" },
-            { name: "Tetramerization", start: 323, end: 356, color: "#3b82f6", description: "Forms functional p53 tetramer" },
-            { name: "Regulatory", start: 364, end: 393, color: "#6366f1", description: "Post-translational modification hub" },
+            { name: "Transactivation I", start: 1, end: 40, color: "#f59e0b", description: "MDM2 binding (F19, W23, L26); p300/CBP interaction; transcriptional activation of p21, BAX, PUMA" },
+            { name: "Transactivation II", start: 40, end: 67, color: "#fbbf24", description: "Secondary transactivation domain; activates subset of p53 target genes; phosphorylation sites (S46, T55)" },
+            { name: "Proline-rich", start: 67, end: 98, color: "#22c55e", description: "Apoptosis regulation; PXXP motifs bind SH3 domains; required for p53-mediated growth suppression" },
+            { name: "DNA binding", start: 102, end: 292, color: "#ef4444", description: "Core domain; >90% of cancer mutations; hotspots: R175H, G245S, R248Q/W, R249S, R273H/C, R282W" },
+            { name: "Nuclear localization", start: 293, end: 322, color: "#14b8a6", description: "Three NLS signals; controls nuclear import; mutated in some Li-Fraumeni families" },
+            { name: "Tetramerization", start: 323, end: 356, color: "#3b82f6", description: "Forms functional p53 tetramer; required for DNA binding; cancer mutations rare but disruptive" },
+            { name: "Regulatory C-term", start: 357, end: 393, color: "#6366f1", description: "PTM hub: acetylation (K382), methylation (K372), phosphorylation (S392); negative regulator of DBD" },
         ],
     },
     PTEN: {
@@ -89,6 +90,34 @@ const GENE_DB: Record<string, GeneStaticData> = {
             { name: "FAT", start: 1960, end: 2566, color: "#f59e0b", description: "FRAP-ATM-TRRAP domain; regulatory" },
             { name: "Kinase", start: 2712, end: 3011, color: "#ef4444", description: "PI3K-like kinase; phosphorylates H2AX, BRCA1" },
             { name: "FATC", start: 3024, end: 3056, color: "#6366f1", description: "C-terminal; required for kinase activity" },
+        ],
+    },
+    MSH2: {
+        totalAA: 934,
+        genomicCDSStart: 47403067,
+        genomicCDSEnd: 47709963,
+        strand: '+',
+        uniprotId: "P43246",
+        domains: [
+            { name: "Mismatch binding", start: 1, end: 120, color: "#ef4444", description: "Recognizes and binds DNA mismatches; initiates MMR pathway" },
+            { name: "Connector", start: 121, end: 300, color: "#f59e0b", description: "Links mismatch recognition to downstream MMR factors" },
+            { name: "Core", start: 301, end: 465, color: "#22c55e", description: "Central structural domain; maintains MutS fold" },
+            { name: "Clamp", start: 466, end: 615, color: "#3b82f6", description: "DNA sliding clamp; tracks along DNA after mismatch binding" },
+            { name: "ATPase", start: 616, end: 854, color: "#6366f1", description: "ATP binding and hydrolysis; powers conformational changes" },
+            { name: "EXO1 interaction", start: 855, end: 934, color: "#ec4899", description: "Recruits EXO1 exonuclease for mismatch excision" },
+        ],
+    },
+    TP53RK: {
+        totalAA: 253,
+        genomicCDSStart: 46689000,
+        genomicCDSEnd: 46689761,
+        strand: '+',
+        uniprotId: "Q96S44",
+        domains: [
+            { name: "N-terminal regulatory", start: 1, end: 62, color: "#f59e0b", description: "Intrinsically disordered; regulatory interactions; post-translational modification sites" },
+            { name: "Protein kinase", start: 63, end: 190, color: "#ef4444", description: "Atypical kinase domain; phosphorylates OSGEP and Birc5; ATP binding site (K129); catalytic loop (D142)" },
+            { name: "EKC/KEOPS interaction", start: 191, end: 230, color: "#3b82f6", description: "Binds EKC/KEOPS complex components; involved in t(6)A37 tRNA modification" },
+            { name: "C-terminal tail", start: 231, end: 253, color: "#22c55e", description: "Regulatory region; influences kinase activity and substrate specificity" },
         ],
     },
 };
@@ -121,14 +150,22 @@ async function fetchUniprotDomains(geneSymbol: string): Promise<{
 
         const palette = ["#ef4444", "#f59e0b", "#22c55e", "#3b82f6", "#6366f1", "#ec4899", "#14b8a6"];
         const domains: Domain[] = features
-            .filter((f) => f.type === "Domain" || f.type === "Region")
-            .slice(0, 8)
+            .filter((f) => 
+                f.type === "Domain" || 
+                f.type === "Region" || 
+                f.type === "Repeat" ||
+                f.type === "Zinc finger" ||
+                f.type === "Motif" ||
+                f.type === "Binding site" ||
+                f.type === "Active site"
+            )
+            .slice(0, 10)  // Increased from 8 to 10 domains
             .map((f, i) => ({
                 name: f.description ?? f.type,
                 start: f.location.start.value,
                 end: f.location.end.value,
                 color: palette[i % palette.length]!,
-                description: `UniProt annotation: ${f.type}`,
+                description: f.description ? `${f.type}: ${f.description}` : `UniProt annotation: ${f.type}`,
             }));
 
         return { domains, totalAA, uniprotId };

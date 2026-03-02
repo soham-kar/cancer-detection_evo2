@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   analyzeVariantWithAPI,
+  fetchSingleBase,
   type ClinvarVariant,
   type GeneFromSearch,
 } from "~/utils/genome-api";
@@ -98,11 +99,37 @@ export default function KnownVariants({
     if (variationType.includes("single nucleotide")) {
       // SNV: Match pattern like "G>T" or "A>C"
       const refAltMatch = variant.title.match(/([ATCG])>([ATCG])/i);
-      if (refAltMatch && refAltMatch.length === 3) {
+      if (refAltMatch && refAltMatch.length === 3 && position) {
+        const transcriptRef = refAltMatch[1]!;
+        const transcriptAlt = refAltMatch[2]!;
+        
+        console.log(`🧬 [ClinVar-Table] Analyzing ${gene.symbol} position ${position}: transcript ${transcriptRef}>${transcriptAlt}`);
+        
+        // Fetch genomic reference to detect strand orientation
+        const genomicRef = await fetchSingleBase(gene.chrom, position, genomeId);
+        console.log(`🧬 [ClinVar-Table] Genomic reference at position ${position}: ${genomicRef}`);
+        
+        // Check if gene is on minus strand
+        const isMinusStrand = genomicRef && transcriptRef && 
+                              genomicRef.toUpperCase() !== transcriptRef.toUpperCase();
+        
+        let finalAlt = transcriptAlt;
+        
+        // For minus-strand genes, reverse complement the alternative
+        if (isMinusStrand) {
+          const complement: Record<string, string> = { 
+            'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' 
+          };
+          finalAlt = complement[transcriptAlt.toUpperCase()] || transcriptAlt;
+          console.log(`🧬 [ClinVar-Table] Minus-strand detected! Transcript: ${transcriptRef}>${transcriptAlt}, Genomic: ${genomicRef}>${finalAlt}`);
+        } else {
+          console.log(`🧬 [ClinVar-Table] Plus-strand (or detection failed), using transcript alt: ${transcriptAlt}`);
+        }
+        
         variantDetails = {
           position,
-          reference: refAltMatch[1]!,
-          alternative: refAltMatch[2]!,
+          reference: transcriptRef,
+          alternative: finalAlt,
         };
       }
     } else if (variationType.includes("deletion")) {

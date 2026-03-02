@@ -24,6 +24,7 @@ import {
 import { Button } from "./ui/button";
 import { match } from "node:assert";
 import { Zap, ShoppingCart } from "lucide-react";
+import { FormattedClinicalSummary } from "./formatted-clinical-summary";
 
 export interface VariantAnalysisHandle {
   focusAlternativeInput: () => void;
@@ -106,21 +107,12 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
       setNeedsCredits(false);
 
       try {
-        // Resolve reference base if not already known (fixes N>A display bug)
-        let resolvedReference = variantReference;
-        if (!resolvedReference) {
-          resolvedReference = await fetchSingleBase(chromosome, position, genomeId);
-          if (resolvedReference) setVariantReference(resolvedReference);
-        }
-
         const data = await analyzeVariantWithAPI({
           position,
           alternative: alt,
           genomeId,
           chromosome,
-          reference: resolvedReference || undefined,
           geneSymbol: gene?.symbol,
-          analysisSource: 'custom',
         });
         setVariantResult(data);
         // Trigger history refresh
@@ -237,6 +229,9 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
 
                 if (!ref || !alt) return null;
 
+                // Log when ClinVar card renders (confirms new code is loaded)
+                console.log(`🧬 [ClinVar-Card-Render] Position ${matchedVariant.location}: extracted ref=${ref}, alt=${alt} from title: "${matchedVariant.title}"`);
+
                 return (
                   <div
                     key={matchedVariant.clinvar_id}
@@ -284,12 +279,42 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                           variant="outline"
                           size="sm"
                           className="h-7 cursor-pointer border-[#3c4f3d]/20 bg-[#e9eeea] text-xs text-[#3c4f3d] hover:bg-[#3c4f3d]/10"
-                          onClick={() => {
-                            setVariantAlternative(alt);
-                            setVariantReference(ref); // ← fixes N>A: pass ClinVar's parsed ref
+                          onClick={async () => {
+                            console.log(`[ClinVar-Debug] Starting analysis for position ${variantPosition}`);
+                            console.log(`[ClinVar-Debug] From title: ref=${ref}, alt=${alt}`);
+                            
+                            // Fetch genomic reference to detect strand orientation
+                            const genomicRef = await fetchSingleBase(
+                              chromosome,
+                              parseInt(variantPosition.replaceAll(",", "")),
+                              genomeId
+                            );
+                            console.log(`[ClinVar-Debug] Genomic reference fetched: ${genomicRef}`);
+                            
+                            // Check if gene is on minus strand (transcript ref != genomic ref)
+                            const isMinusStrand = genomicRef && ref && 
+                                                  genomicRef.toUpperCase() !== ref.toUpperCase();
+                            console.log(`[ClinVar-Debug] Strand detection: genomic=${genomicRef}, transcript=${ref}, isMinusStrand=${isMinusStrand}`);
+                            
+                            let finalAlt = alt;
+                            
+                            // For minus-strand genes, reverse complement the alternative
+                            if (isMinusStrand && genomicRef) {
+                              const complement: Record<string, string> = { 
+                                'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' 
+                              };
+                              const originalAlt = alt;
+                              finalAlt = complement[alt.toUpperCase()] || alt;
+                              console.log(`[ClinVar] Minus-strand gene detected. Transcript: ${ref}>${originalAlt}, Genomic: ${genomicRef}>${finalAlt}`);
+                            } else {
+                              console.log(`[ClinVar-Debug] Plus-strand or detection failed, using original alt=${alt}`);
+                            }
+                            
+                            console.log(`[ClinVar-Debug] Final alternative being sent: ${finalAlt}`);
+                            setVariantAlternative(finalAlt);
                             handleVariantSubmit(
                               variantPosition.replaceAll(",", ""),
-                              alt,
+                              finalAlt,
                             );
                           }}
                         >
@@ -556,9 +581,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                     <div className="text-xs font-medium text-[#3c4f3d]/70 mb-2">
                       AI Clinical Summary
                     </div>
-                    <div className="text-sm text-[#3c4f3d] leading-relaxed">
-                      {variantResult.literature_context.summary}
-                    </div>
+                    <FormattedClinicalSummary summary={variantResult.literature_context.summary} />
                   </div>
                 )}
 
