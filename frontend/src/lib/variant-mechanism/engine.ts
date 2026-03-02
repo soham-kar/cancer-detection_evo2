@@ -1,18 +1,37 @@
-/**
- * engine.ts — Variant Mechanism Inference Engine
- *
- * Generates biological explanations for variants based on:
- *   - VEP consequence (when available)
- *   - Frameshift math (ref/alt length)
- *   - Domain position (GENE_DB)
- *   - Evo2 delta score direction
- *
- * No variant-specific or gene-specific hardcoding — all rules are biological.
- */
+// =============================================================================
+// Variant Mechanism Inference Engine - Explainable AI (XAI)
+// =============================================================================
+// Generates human-readable biological explanations for genomic variants based on:
+//   - VEP molecular consequences (when available)
+//   - Frameshift mathematics (reference/alternative length analysis)
+//   - Protein domain positioning (GENE_DB functional annotations)
+//   - Evo2 evolutionary constraint signals (delta score direction/magnitude)
+//
+// Design Philosophy:
+//   - No variant-specific hardcoding: All rules are biological principles
+//   - No gene-specific hardcoding: Domain data drives gene context
+//   - Graceful degradation: Works without VEP annotation (sequence-only mode)
+//   - Evidence transparency: Shows reasoning chain for clinical review
+//
+// Mechanism Categories:
+//   1. Frameshift (HIGH impact): Reading frame disruption → truncation
+//   2. Nonsense (HIGH impact): Premature stop codon → protein truncation
+//   3. In-frame indel (MODERATE impact): AA insertion/deletion
+//   4. Missense (VARIABLE impact): Conservative vs non-conservative substitution
+//   5. Synonymous (LOW impact): Silent mutation, no protein change
+//   6. Fallback (uncertain): VEP unavailable, delta score only
+// =============================================================================
+
 import type { VariantContext, MechanismExplanation } from "./types";
 import type { Domain } from "~/utils/domain-lookup";
 
-// ── Amino acid single-letter → full name map ─────────────────────────────── 
+// =============================================================================
+// Amino Acid Reference Data
+// =============================================================================
+/**
+ * Single-letter amino acid code to full name mapping.
+ * Used for generating human-readable protein change descriptions.
+ */
 const AA_NAMES: Record<string, string> = {
     A: "Alanine", R: "Arginine", N: "Asparagine", D: "Aspartate",
     C: "Cysteine", Q: "Glutamine", E: "Glutamate", G: "Glycine",
@@ -22,7 +41,20 @@ const AA_NAMES: Record<string, string> = {
     "*": "Stop codon",
 };
 
-// ── Amino acid biochemical groups (for conservative vs non-conservative) ─────
+/**
+ * Amino acid biochemical property groups for conservative change analysis.
+ * 
+ * Groups:
+ *   - nonpolar: Hydrophobic residues, typically buried in protein core
+ *   - aromatic: Large ring structures, important for pi-stacking interactions
+ *   - polar: Uncharged hydrophilic residues, often at surface or H-bonding
+ *   - positive: Lysine, Arginine, Histidine (basic residues)
+ *   - negative: Aspartate, Glutamate (acidic residues)
+ *   - stop: Termination codon
+ * 
+ * Conservative changes: Within-group substitutions (e.g., Leu → Ile)
+ * Non-conservative changes: Between-group substitutions (e.g., Lys → Asp)
+ */
 const AA_GROUP: Record<string, string> = {
     // Nonpolar aliphatic
     G: "nonpolar", A: "nonpolar", V: "nonpolar", L: "nonpolar", I: "nonpolar", P: "nonpolar", M: "nonpolar",
@@ -34,10 +66,30 @@ const AA_GROUP: Record<string, string> = {
     K: "positive", R: "positive", H: "positive",
     // Negatively charged
     D: "negative", E: "negative",
-    // Stop
+    // Stop codon
     "*": "stop",
 };
 
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Determine if amino acid substitution is biochemically conservative.
+ * 
+ * Conservative changes maintain similar physicochemical properties and are
+ * often better tolerated structurally. Examples:
+ *   - Leu → Ile (both nonpolar aliphatic)
+ *   - Asp → Glu (both negatively charged)
+ *   - Ser → Thr (both polar uncharged)
+ * 
+ * Non-conservative changes alter charge, polarity, or size and are more
+ * likely to disrupt protein structure/function.
+ * 
+ * @param ref - Reference amino acid single-letter code
+ * @param alt - Alternative amino acid single-letter code
+ * @returns true if substitution is conservative (same biochemical group)
+ */
 function isConservativeChange(ref: string, alt: string): boolean {
     if (!ref || !alt || ref === alt) return true;
     const refGroup = AA_GROUP[ref.toUpperCase()];
@@ -45,16 +97,36 @@ function isConservativeChange(ref: string, alt: string): boolean {
     return refGroup !== undefined && refGroup === altGroup;
 }
 
-/** Parse "p.Thr1074AsnfsTer12" → { refAA, pos, altAA, fsOffset } */
+/**
+ * Parse HGVS protein notation into structured components.
+ * 
+ * Supported formats:
+ *   - Missense: p.Thr1074Ala (three-letter AA codes)
+ *   - Synonymous: p.Thr1074= (unchanged)
+ *   - Nonsense: p.Thr1074Ter or p.Thr1074*
+ *   - Frameshift: p.Thr1074AsnfsTer12 (frameshift to Ter at +12)
+ * 
+ * Returns:
+ *   - refAA1: Reference amino acid single-letter code
+ *   - pos: Amino acid position in protein
+ *   - altAA1: Alternative amino acid (or "fs" suffix for frameshift)
+ *   - isStop: true if nonsense mutation
+ *   - fsOffset: Frameshift offset to termination codon
+ * 
+ * @param hgvsp - HGVS protein notation string (e.g., "p.Thr1074Ala")
+ * @returns Parsed components or null if format unrecognized
+ */
 function parseHGVSp(hgvsp: string | null): {
     refAA1: string; pos: number; altAA1: string; isStop: boolean; fsOffset?: number;
 } | null {
     if (!hgvsp) return null;
-    // p.Thr1074AsnfsTer12  or  p.Thr1074Ala  or  p.Thr1074=
+    
+    // Match HGVS protein notation pattern
+    // Captures: (refAA3)(position)(altAA3)(frameshift?)(termination offset?)
     const match = hgvsp.match(/p\.([A-Z][a-z]{2})(\d+)([A-Z?*][a-z]*)(fs)?(?:Ter(\d+))?/);
     if (!match) return null;
 
-    // Three-letter → single-letter
+    // Three-letter to single-letter amino acid code mapping
     const THREE_TO_ONE: Record<string, string> = {
         Ala: "A", Arg: "R", Asn: "N", Asp: "D", Cys: "C", Gln: "Q",
         Glu: "E", Gly: "G", His: "H", Ile: "I", Leu: "L", Lys: "K",
@@ -75,7 +147,15 @@ function parseHGVSp(hgvsp: string | null): {
     return { refAA1, pos, altAA1: isFrameshift ? altAA1 + "fs" : altAA1, isStop, fsOffset };
 }
 
-/** Build human-readable codons line: "acA → acG" */
+/**
+ * Format codon change for human-readable display.
+ * 
+ * Input format: "acA/acG" (lowercase = unchanged, uppercase = mutated)
+ * Output format: "acA → acG" (directional arrow)
+ * 
+ * @param codons - Codon change string from VEP (ref/alt)
+ * @returns Formatted codon change or original string if format unrecognized
+ */
 function formatCodons(codons: string | null): string | null {
     if (!codons) return null;
     const [ref, alt] = codons.split("/");
@@ -83,7 +163,19 @@ function formatCodons(codons: string | null): string | null {
     return `${ref} → ${alt}`;
 }
 
-/** Format amino acid change for display */
+/**
+ * Format amino acid change for display with full residue names.
+ * 
+ * Examples:
+ *   - Missense: "Threonine-1074 → Alanine"
+ *   - Synonymous: "Threonine-1074 (unchanged)"
+ *   - Nonsense: "Threonine-1074 → premature stop codon"
+ *   - Frameshift: "Threonine-1074 → Asparagine (frameshift, stop at +12)"
+ * 
+ * @param parsed - Parsed HGVS components from parseHGVSp
+ * @param raw - Raw HGVS string as fallback
+ * @returns Human-readable amino acid change description
+ */
 function formatAAChange(parsed: ReturnType<typeof parseHGVSp>, raw: string | null): string | null {
     if (!parsed) return raw;
     const refName = AA_NAMES[parsed.refAA1] ?? parsed.refAA1;
@@ -99,7 +191,22 @@ function formatAAChange(parsed: ReturnType<typeof parseHGVSp>, raw: string | nul
     return `${refName}-${parsed.pos} → ${altName}`;
 }
 
-/** Describe domains truncated by a stop codon at the given AA position */
+/**
+ * Generate description of protein domains truncated by premature stop codon.
+ * 
+ * Used for nonsense and frameshift variants to explain functional consequences
+ * of protein truncation. Catalogs all domains lost beyond the stop position.
+ * 
+ * Output format:
+ *   "Premature stop at aa 1074 means the following BRCA1 domains are never
+ *    synthesized: BRCT (I) (aa 1646–1736), BRCT (II) (aa 1756–1855).
+ *    Binds phosphoproteins; key for DNA repair."
+ * 
+ * @param stopAA - Amino acid position of premature stop codon
+ * @param lostDomains - Array of domains beyond stop position
+ * @param geneName - Gene symbol for context
+ * @returns Human-readable truncation description
+ */
 function describeTruncatedDomains(stopAA: number, lostDomains: Domain[], geneName: string): string {
     if (lostDomains.length === 0) return "";
     const names = lostDomains.map((d) => `${d.name} (aa ${d.start}–${d.end})`).join(", ");
@@ -107,49 +214,88 @@ function describeTruncatedDomains(stopAA: number, lostDomains: Domain[], geneNam
     return `Premature stop at aa ${stopAA} means the following ${geneName} domains are never synthesized: ${names}. ${descriptions}.`;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// =============================================================================
+// Main Mechanism Inference Engine
+// =============================================================================
+
+/**
+ * Infer biological mechanism and generate XAI explanation for variant.
+ * 
+ * This is the main entry point for mechanism inference. It analyzes variant
+ * attributes in priority order:
+ *   1. VEP consequence (if available): High-confidence molecular annotation
+ *   2. Length-based frameshift: Mathematical certainty from indel length
+ *   3. Domain context: Functional impact based on protein region
+ *   4. Evo2 delta score: Evolutionary constraint signal
+ * 
+ * The function generates:
+ *   - Title: Concise mechanism category
+ *   - Primary mechanism: Technical description of molecular change
+ *   - Biological impact: Functional consequences and evolutionary evidence
+ *   - Molecular detail: Codon and amino acid changes
+ *   - Domain context: Affected protein regions
+ *   - Comparison note: Contrast with alternative scenarios
+ * 
+ * Confidence levels:
+ *   - high: VEP-confirmed PTVs (frameshift, nonsense, synonymous)
+ *   - medium: Missense or in-frame indels with domain context
+ *   - low: Fallback mode without VEP annotation
+ * 
+ * @param ctx - Variant context with VEP, delta score, and domain data
+ * @returns MechanismExplanation with structured XAI content
+ */
 export function inferMechanism(ctx: VariantContext): MechanismExplanation {
     const { vep, variantType, reference, alternative, deltaScore, hitDomain, domainsAfterPosition, geneSymbol, proteinPosition } = ctx;
 
+    // Classify variant type from ClinVar or VEP data
     const isDup = /duplication|dup/i.test(variantType);
     const isDel = /deletion|del/i.test(variantType);
     const isIns = /insertion|ins/i.test(variantType) && !isDup;
     const isIndel = isDup || isDel || isIns;
 
-    // ── Length-based frameshift check (works even without VEP) ─────────────
+    // ===== Frameshift Detection =====
+    // Length-based detection works even without VEP annotation
+    // Frameshift condition: indel length not divisible by 3
     const lenDiff = alternative.length - reference.length;
     const isLengthFrameshift = isIndel && lenDiff !== 0 && Math.abs(lenDiff) % 3 !== 0;
 
+    // Prefer VEP classification, fall back to length-based detection
     const isFrameshift = vep?.isFrameshift ?? isLengthFrameshift;
     const isSynonymous = vep?.isSynonymous ?? false;
     const isNonsense = vep?.isNonsense ?? false;
 
+    // Parse protein-level changes from VEP annotation
     const parsedAA = parseHGVSp(vep?.aaChange ?? null);
     const codonDisplay = formatCodons(vep?.codons ?? null);
     const aaDisplay = formatAAChange(parsedAA, vep?.aaChange ?? null);
 
+    // Structure molecular details for display
     const molDetail = (codonDisplay || aaDisplay || vep?.aaChange) ? {
         codonChange: codonDisplay,
         aaChange: vep?.aaChange ?? null,
         aminoAcidChange: aaDisplay,
     } : null;
 
-    // Stop codon position for truncation analysis
+    // Calculate truncation consequences for PTVs
+    // Stop codon position: current position + frameshift offset
     const stopAA = parsedAA?.fsOffset && proteinPosition
         ? proteinPosition + parsedAA.fsOffset
         : null;
     
-    // Include both fully lost domains (start > stopAA) and partially truncated (start <= stopAA < end)
+    // Identify truncated domains: both fully lost and partially truncated
     const truncatedByStop = stopAA
         ? domainsAfterPosition.filter((d) => d.start > stopAA || (d.start <= stopAA && stopAA < d.end))
         : domainsAfterPosition;
 
-    // ── FRAMESHIFT (Dup / Del / Ins) ────────────────────────────────────────
+    // ===== MECHANISM CLASSIFICATION HIERARCHY =====
+    // Priority order: Frameshift → Nonsense → In-frame indel → Missense → Synonymous → Fallback
+
+    // ===== FRAMESHIFT VARIANTS (Duplication / Deletion / Insertion) =====
     if (isFrameshift) {
         const insSize = Math.abs(lenDiff);
         const domainCtxSentence = hitDomain
-            ? `Variant falls within ${hitDomain.name} (aa ${hitDomain.start}–${hitDomain.end}) — frameshift also destroys this domain directly.`
-            : `Variant is outside annotated domains, but the reading frame shift affects all downstream protein.`;
+            ? `Variant falls within ${hitDomain.name} (aa ${hitDomain.start}–${hitDomain.end}) — frameshift destroys this domain and all downstream protein.`
+            : `Variant is outside annotated domains, but reading frame shift affects all downstream protein sequence.`;
         const truncDesc = describeTruncatedDomains(stopAA ?? (proteinPosition ?? 0), truncatedByStop, geneSymbol);
 
         return {
@@ -170,7 +316,8 @@ export function inferMechanism(ctx: VariantContext): MechanismExplanation {
         };
     }
 
-    // ── IN-FRAME INDEL ──────────────────────────────────────────────────────
+    // ===== IN-FRAME INDEL VARIANTS =====
+    // Preserves reading frame but removes/adds complete amino acids
     if (isIndel && !isFrameshift) {
         const aaCount = Math.abs(lenDiff) / 3;
         return {
@@ -187,7 +334,8 @@ export function inferMechanism(ctx: VariantContext): MechanismExplanation {
         };
     }
 
-    // ── NONSENSE (stop gained) ───────────────────────────────────────────────
+    // ===== NONSENSE VARIANTS (Stop-Gained) =====
+    // Premature termination codon → protein truncation
     if (isNonsense) {
         const truncDesc = describeTruncatedDomains(proteinPosition ?? 0, truncatedByStop, geneSymbol);
         return {
@@ -207,7 +355,8 @@ export function inferMechanism(ctx: VariantContext): MechanismExplanation {
         };
     }
 
-    // ── SYNONYMOUS ───────────────────────────────────────────────────────────
+    // ===== SYNONYMOUS VARIANTS (Silent Mutations) =====
+    // Codon change with no amino acid change due to genetic code degeneracy
     if (isSynonymous) {
         return {
             title: "Synonymous Variant — No Protein Change",
@@ -223,7 +372,8 @@ export function inferMechanism(ctx: VariantContext): MechanismExplanation {
         };
     }
 
-    // ── MISSENSE ─────────────────────────────────────────────────────────────
+    // ===== MISSENSE VARIANTS (Amino Acid Substitutions) =====
+    // Single amino acid change with variable functional impact
     if (vep?.consequence === "missense_variant" && parsedAA) {
         const conservative = isConservativeChange(parsedAA.refAA1, parsedAA.altAA1[0]!);
         const refName = AA_NAMES[parsedAA.refAA1] ?? parsedAA.refAA1;
@@ -245,25 +395,29 @@ export function inferMechanism(ctx: VariantContext): MechanismExplanation {
         };
     }
 
-    // ── FALLBACK: VEP unavailable — reason from delta + domain only ─────────
-    const isPathogenic = deltaScore < -0.001;
-    const isBenign = deltaScore > 0.001;
+    // ===== FALLBACK MODE =====
+    // VEP annotation unavailable — infer from Evo2 delta score and backend classification
+    // Uses gene-specific thresholds and 3-tier classification from backend
+    const isPathogenic = ctx.prediction === "Likely pathogenic";
+    const isBenign = ctx.prediction === "Likely benign";
     return {
         title: isPathogenic ? "Pathogenic Signal Detected" : isBenign ? "Benign Signal Detected" : "Variant of Uncertain Significance",
         confidence: "low",
         primaryMechanism: isPathogenic
-            ? `Evo2 Δ = ${deltaScore.toFixed(6)} — strong negative signal indicating this variant is evolutionarily disfavored. Molecular annotation (VEP) was unavailable; mechanism inferred from sequence-level scoring.`
+            ? `Evo2 Δ = ${deltaScore.toFixed(6)} — strong negative signal indicating evolutionary constraint. This variant is disfavored by natural selection. Molecular annotation (VEP) was unavailable; mechanism inferred from sequence-level conservation analysis.`
             : isBenign
-                ? `Evo2 Δ = ${deltaScore.toFixed(6)} — positive signal indicating evolutionary tolerance. VEP annotation unavailable.`
-                : `Evo2 Δ = ${deltaScore.toFixed(6)} — near-zero signal, insufficient to classify. Molecular annotation (VEP) was unavailable.`,
+                ? `Evo2 Δ = ${deltaScore.toFixed(6)} — positive signal indicating evolutionary tolerance. Variant is permissive across species. VEP molecular annotation unavailable.`
+                : `Evo2 Δ = ${deltaScore.toFixed(6)} — near-zero signal suggests weak or conflicting evolutionary pressure. Classification uncertain without molecular annotation.`,
         molecularDetail: null,
         biologicalImpact: hitDomain
-            ? `Variant falls in ${hitDomain.name} (aa ${hitDomain.start}–${hitDomain.end}): ${hitDomain.description}.`
-            : "Variant is outside annotated functional domains.",
+            ? `Variant at ~aa ${proteinPosition} falls within ${hitDomain.name} (aa ${hitDomain.start}–${hitDomain.end}): ${hitDomain.description}. Functional assessment recommended.`
+            : proteinPosition
+                ? `Variant at ~aa ${proteinPosition} is outside annotated functional domains. May have regulatory or unknown effects.`
+                : "Protein position could not be determined. Variant impact on protein domains unknown.",
         domainContext: hitDomain ? {
             sentence: `${hitDomain.name}: ${hitDomain.description}.`,
             truncatedDomains: [],
         } : null,
-        comparisonNote: "Re-run analysis when VEP annotation is available for a more precise mechanism explanation.",
+        comparisonNote: "Re-run analysis when VEP annotation becomes available for precise molecular mechanism explanation.",
     };
 }

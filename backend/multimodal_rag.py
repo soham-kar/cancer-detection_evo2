@@ -194,11 +194,93 @@ class MultiModalRAG:
             return {"text": f"PubMed Error: {str(e)}", "pmids": [], "level": "Error"}
 
     # =========================================================================
+    # VEP & EVO2 FORMATTING HELPERS
+    # =========================================================================
+    def _format_vep_annotation(self, vep_data: Optional[Dict]) -> str:
+        """Format VEP annotation for LLM context"""
+        if not vep_data:
+            return "VEP Annotation: NOT AVAILABLE (Pending molecular annotation)"
+        
+        consequence = vep_data.get('consequence', 'unknown')
+        impact = vep_data.get('impact', 'UNKNOWN')
+        aa_change = vep_data.get('aaChange') or 'Not determined'
+        codons = vep_data.get('codons') or 'Not determined'
+        amino_acids = vep_data.get('aminoAcids') or 'Not determined'
+        is_synonymous = vep_data.get('isSynonymous', False)
+        is_frameshift = vep_data.get('isFrameshift', False)
+        is_nonsense = vep_data.get('isNonsense', False)
+        transcript_id = vep_data.get('transcriptId') or 'Unknown'
+        exon_number = vep_data.get('exonNumber') or 'Unknown'
+        
+        # Classify variant type
+        if is_nonsense:
+            var_type = "STOP-GAIN (Nonsense)"
+        elif is_frameshift:
+            var_type = "FRAMESHIFT"
+        elif is_synonymous:
+            var_type = "SYNONYMOUS (Silent)"
+        else:
+            var_type = "MISSENSE (Amino acid change)"
+        
+        result = f"""VEP Annotation: AVAILABLE
+Consequence: {consequence} ({impact} impact)
+Variant Type: {var_type}
+Amino Acid Change: {aa_change}
+Codon Change: {codons}
+Amino Acids: {amino_acids}
+Transcript: {transcript_id}
+Exon: {exon_number}
+"""
+        return result
+    
+    def _format_evo2_prediction(self, evo2_delta: Optional[float], evo2_confidence: Optional[float], evo2_prediction: Optional[str]) -> str:
+        """Format Evo2 prediction for LLM context"""
+        if evo2_delta is None:
+            return "Evo2 Prediction: NOT AVAILABLE (Pending computational analysis)"
+        
+        # Interpret delta score
+        abs_delta = abs(evo2_delta)
+        if abs_delta > 0.01:
+            evolutionary_interpretation = "strong evolutionary constraint - rarely seen in healthy genomes"
+        elif abs_delta > 0.005:
+            evolutionary_interpretation = "moderate evolutionary constraint - uncommon in population"
+        elif abs_delta > 0.001:
+            evolutionary_interpretation = "weak evolutionary signal - borderline significance"
+        else:
+            evolutionary_interpretation = "minimal evolutionary pressure - commonly tolerated"
+        
+        # Direction
+        if evo2_delta < 0:
+            direction = "NEGATIVE (disfavored - suggests pathogenic)"
+        else:
+            direction = "POSITIVE (favored - suggests benign)"
+        
+        confidence_pct = round((evo2_confidence or 0) * 100, 1)
+        
+        result = f"""Evo2 Prediction: AVAILABLE
+Delta Score: {evo2_delta:.6f} ({direction})
+Model Confidence: {confidence_pct}%
+Prediction: {evo2_prediction or 'Unknown'}
+Evolutionary Context: {evolutionary_interpretation}
+Interpretation: Evo2 analyzes an 8,192 bp genomic window and compares reference vs variant sequences. This score reflects how "normal" the variant sequence appears to evolution based on training on 2.7B DNA tokens from diverse species.
+"""
+        return result
+
+    # =========================================================================
     # MAIN SYNTHESIS (STRUCTURED "Top 1%" Format)
     # =========================================================================
     @modal.method()
-    def search_and_synthesize(self, gene: str, variant: str) -> Dict:
-        print(f"🚀 Tri-Modal Search: {gene} {variant}")
+    def search_and_synthesize(
+        self, 
+        gene: str, 
+        variant: str,
+        vep_data: Optional[Dict] = None,
+        evo2_delta: Optional[float] = None,
+        evo2_confidence: Optional[float] = None,
+        evo2_prediction: Optional[str] = None
+    ) -> Dict:
+        print(f"🚀 Quad-Modal Search: {gene} {variant}")
+        print(f"   VEP: {'✓' if vep_data else '✗'} | Evo2: {'✓' if evo2_delta is not None else '✗'}")
 
         cache_key = f"multimodal:{gene}:{variant}"
 
@@ -226,38 +308,63 @@ class MultiModalRAG:
         pubmed = self._get_pubmed_evidence(gene, variant)
         print(f"   → PubMed: {len(pubmed['pmids'])} papers")
 
-        # --- THE STRUCTURED "TOP 1%" PROMPT ---
-        print("⚡ Synthesizing with Llama-3.3-70B...")
+        # --- Format VEP and Evo2 context ---
+        vep_context = self._format_vep_annotation(vep_data)
+        evo2_context = self._format_evo2_prediction(evo2_delta, evo2_confidence, evo2_prediction)
 
-        system_prompt = """You are an expert clinical geneticist writing a structured report for a doctor.
-You have access to ClinVar (Clinical Truth), UniProt (Mechanism), and PubMed (Latest Evidence).
+        # --- ENHANCED MECHANISTIC PROMPT ---
+        print("⚡ Synthesizing with Llama-3.3-70B (Mechanistic Mode)...")
+
+        system_prompt = """You are an expert clinical geneticist writing a mechanistic variant interpretation report.
+
+CRITICAL RULES - NEVER VIOLATE:
+1. ONLY state facts present in the provided sources
+2. If data is missing, explicitly say "Data not available" - NEVER speculate
+3. ALL claims MUST cite a source using these tags: [VEP], [Evo2], [ClinVar], [UniProt], or [PMID:XXXXX]
+4. If sources conflict, state both perspectives - do NOT choose sides arbitrarily
+5. Use cautious scientific language: "suggests", "may indicate", "consistent with", "associated with"
+6. NEVER invent amino acid changes, pathway mechanisms, or citations not in the data
+7. If VEP shows "NOT AVAILABLE", do NOT discuss molecular consequences at the residue level
 
 Structure your response EXACTLY like this with markdown headers:
 
-**1. Clinical Classification:**
-Start with the ClinVar status. State clearly if it is Pathogenic, Benign, or VUS (Variant of Uncertain Significance).
+**1. Molecular Change:**
+State the DNA variant and its molecular consequence from VEP. Include: consequence type, amino acid change (if available), codon change, impact level, and affected exon. If VEP unavailable, state: "Molecular annotation pending - amino acid impact unknown" [VEP]
 
-**2. Biological Mechanism:**
-Explain the molecular impact using UniProt data. Does it disrupt DNA binding, enzyme activity, or structural stability?
+**2. Computational Evidence:**
+Report Evo2 delta score, confidence %, and prediction. Explain the evolutionary interpretation (how rare/common this sequence pattern is). If Evo2 unavailable, state: "Computational prediction not available" [Evo2]
 
-**3. Evidence & Implications:**
-Cite specific findings from the PubMed abstracts. Mention associated diseases, drug resistance, or specific phenotypes. Use [PMID:XXXX] citations.
+**3. Mechanistic Impact:**
+Synthesize VEP + Evo2 + UniProt to explain WHY this variant may be pathogenic/benign. Connect the amino acid change (if known) to protein function disruption. Explain the biochemical consequence (e.g., active site disruption, structural instability, loss of binding). If mechanism unclear, state limitations.
 
-Keep the tone professional, objective, and evidence-based. Be thorough but concise."""
+**4. Clinical Classification:**
+Report ClinVar status with review status. Explain confidence level based on clinical evidence. Cite literature supporting pathogenicity/benignity. [ClinVar] [PMID:XXXXX]
 
-        user_prompt = f"""GENE: {gene}
-VARIANT: {variant}
+**5. Evidence Synthesis:**
+Assess overall confidence by comparing concordance across VEP, Evo2, ClinVar, and PubMed. Grade as HIGH (all concordant), MODERATE (majority concordant), or LOW (conflicting/insufficient data). Explain any discrepancies.
 
---- CLINVAR (Official Status) ---
+Keep tone professional, objective, evidence-based. Be thorough but concise. Maximum 600 words."""
+
+        user_prompt = f"""ANALYZE THIS VARIANT:
+Gene: {gene}
+Variant: {variant}
+
+--- VEP ANNOTATION (Molecular Truth) ---
+{vep_context}
+
+--- EVO2 PREDICTION (Computational Evidence) ---
+{evo2_context}
+
+--- CLINVAR (Clinical Classification) ---
 {clinvar['text']}
 
---- UNIPROT (Mechanism) ---
+--- UNIPROT (Protein Function & Domains) ---
 {uniprot['text']}
 
---- PUBMED (Literature) ---
+--- PUBMED (Literature Evidence) ---
 {pubmed['text']}
 
-Synthesize a structured clinical report:"""
+Synthesize a mechanistic variant interpretation following the structured format above. Cite all sources. Do NOT speculate beyond provided data."""
 
         try:
             completion = self.groq.chat.completions.create(
@@ -266,14 +373,16 @@ Synthesize a structured clinical report:"""
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=600,
-                temperature=0.3,
+                max_tokens=800,             # Increased for mechanistic details
+                temperature=0.1,            # Lowered for determinism
+                top_p=0.9,                  # Added for consistency
+                frequency_penalty=0.2,      # Reduce repetition
             )
             summary = completion.choices[0].message.content.strip()
         except Exception as e:
             summary = f"LLM Synthesis Error: {e}"
 
-        print("✅ Tri-Modal Search Complete")
+        print("✅ Quad-Modal Search Complete")
 
         result = {
             "found": True,

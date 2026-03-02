@@ -1,13 +1,52 @@
+// =============================================================================
+// Variant Analysis API Route - Main Analysis Orchestration
+// =============================================================================
+// This endpoint orchestrates the complete variant analysis pipeline:
+//   1. User authentication and credit management (free tier + paid credits)
+//   2. Reference allele fetching from UCSC Genome Browser
+//   3. VEP molecular consequence annotation from Ensembl
+//   4. Evo2 AI prediction via Modal backend
+//   5. Database persistence for analysis history
+//
+// Credit System:
+//   - New users: 5 paid credits + 10 free analyses per day
+//   - Free tier: 10 analyses/day, then 48h cooldown
+//   - Paid credits: No cooldown, unlimited analyses
+// =============================================================================
+
 import { NextRequest, NextResponse } from "next/server";
 import { getOrCreateUser, deductCredit, incrementFreeRuns, setCooldown } from "~/lib/user-utils";
 import { db } from "~/lib/db";
 
-const FREE_LIMIT_PER_DAY = 10;
-const COOLDOWN_DAYS = 2;
+// Credit system configuration
+const FREE_LIMIT_PER_DAY = 10;  // Maximum free analyses per day
+const COOLDOWN_DAYS = 2;         // Cooldown period after free limit exhausted
 
-// Modal backend URL
+// Modal backend API endpoint for GPU-accelerated Evo2 inference
 const MODAL_API_URL = process.env.NEXT_PUBLIC_ANALYZE_SINGLE_VARIANT_BASE_URL;
 
+// =============================================================================
+// Type Definitions
+// =============================================================================
+
+/**
+ * Analysis request payload sent from frontend to this API route.
+ * 
+ * Required fields:
+ *   - variant_position: 1-based genomic position
+ *   - alternative: Alternative allele sequence
+ *   - genome: Genome build (hg19, hg38, mm10, mm39)
+ *   - chromosome: Chromosome identifier (chr1-chr22, chrX, chrY, chrM)
+ * 
+ * Optional fields:
+ *   - reference: Reference allele (fetched from UCSC if not provided)
+ *   - gene_symbol: HGNC gene symbol for literature context and thresholds
+ *   - clinvar_classification: Known ClinVar classification for comparison
+ *   - variation_type: Variant type from ClinVar (e.g., "single nucleotide variant")
+ *   - clinvar_id: ClinVar accession ID
+ *   - analysis_source: Context flag indicating analysis origin
+ *   - vep_annotation: Pre-computed VEP annotation (populated by this endpoint)
+ */
 interface AnalysisRequestBody {
     variant_position: number;
     alternative: string;
@@ -19,14 +58,34 @@ interface AnalysisRequestBody {
     variation_type?: string;
     clinvar_id?: string;
     analysis_source?: 'clinvar' | 'custom';
+    vep_annotation?: unknown;
 }
 
+// =============================================================================
+// Helper Functions
+// =============================================================================
+
+/**
+ * Call Modal backend API for GPU-accelerated Evo2 variant analysis.
+ * 
+ * This function sends the variant data to the deployed Modal container running
+ * the Evo2-7B model on H100 GPU. The backend performs:
+ *   - Genome sequence fetching and variant construction
+ *   - Evo2 likelihood scoring (reference vs variant)
+ *   - Gene-specific threshold application
+ *   - VEP override logic for high-confidence variants
+ *   - Clinical enrichment (gnomAD, ACMG, PubMed)
+ * 
+ * @param body - Variant analysis request with all required fields
+ * @returns Promise resolving to Modal API response with prediction results
+ * @throws Error if Modal API URL not configured or request fails
+ */
 async function callModalAnalysis(body: AnalysisRequestBody) {
     if (!MODAL_API_URL) {
         throw new Error("MODAL_API_URL not configured");
     }
 
-    console.log("🔬 Calling Modal API:", { url: MODAL_API_URL, body });
+    console.log("[MODAL] Calling Modal API:", { url: MODAL_API_URL, body });
 
     const response = await fetch(MODAL_API_URL, {
         method: "POST",
@@ -38,21 +97,58 @@ async function callModalAnalysis(body: AnalysisRequestBody) {
 
     if (!response.ok) {
         const errorText = await response.text();
-        console.error("❌ Modal API Error:", errorText);
+        console.error("[MODAL] API Error:", errorText);
         throw new Error(`Modal API failed: ${errorText}`);
     }
 
     const result = await response.json();
-    console.log("✅ Modal API Response:", result);
+    console.log("[MODAL] API Response:", result);
     return result;
 }
 
+// =============================================================================
+// Main Analysis Endpoint
+// =============================================================================
+
+/**
+ * POST /api/analyze - Main variant analysis endpoint
+ * 
+ * Pipeline stages:
+ * 1. Authentication & Credit Check
+ *    - Verify user authentication via Clerk
+ *    - Check cooldown status (48h cooldown after free limit)
+ *    - Validate credit availability (paid or free)
+ * 
+ * 2. Credit Deduction
+ *    - Prefer paid credits over free credits
+ *    - Increment free run counter if using free tier
+ * 
+ * 3. Reference Allele Fetch (UCSC)
+ *    - Fetch reference allele from UCSC genome API if not provided
+ *    - Required for VEP annotation accuracy
+ * 
+ * 4. VEP Annotation (Ensembl)
+ *    - Fetch molecular consequence annotation
+ *    - Provides override logic for high-confidence variants
+ *    - Enriches RAG context with molecular mechanism
+ * 
+ * 5. Modal Backend Analysis
+ *    - Send variant + VEP data to Evo2 GPU backend
+ *    - Receive prediction, confidence, and clinical enrichment
+ * 
+ * 6. Database Persistence
+ *    - Save analysis results to PostgreSQL via Prisma
+ *    - Enable analysis history and reporting features
+ * 
+ * @param request - Next.js request object with variant data in body
+ * @returns JSON response with analysis results and updated credit balance
+ */
 export async function POST(request: NextRequest) {
     try {
-        // Get or create user
+        // ===== Stage 1: Authentication & Credit Management =====
         const user = await getOrCreateUser();
 
-        // COOLDOWN CHECK: If cooldown is active, reject
+        // Check if user is in cooldown period (free tier exhausted)
         if (user.cooldownUntil && new Date(user.cooldownUntil) > new Date()) {
             const remainingTime = Math.ceil(
                 (new Date(user.cooldownUntil).getTime() - Date.now()) / (1000 * 60 * 60)
@@ -68,9 +164,9 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // FREE LIMIT CHECK: If no paid credits and free limit reached
+        // Check if free tier limit reached and no paid credits available
         if (user.freeRunsToday >= FREE_LIMIT_PER_DAY && user.credits <= 0) {
-            // Set cooldown for 2 days
+            // Activate cooldown period to prevent abuse
             const cooldownUntil = new Date();
             cooldownUntil.setDate(cooldownUntil.getDate() + COOLDOWN_DAYS);
 
@@ -87,52 +183,95 @@ export async function POST(request: NextRequest) {
             );
         }
 
-        // CREDIT DEDUCTION LOGIC
+        // ===== Stage 2: Credit Deduction =====
+        // Priority: Paid credits → Free credits
         let creditUsed: "paid" | "free";
 
         if (user.credits > 0) {
-            // Use paid credits first
+            // Deduct from paid credit balance
             await deductCredit(user.clerkId);
             creditUsed = "paid";
         } else {
-            // Use free credit
+            // Use free daily allowance
             await incrementFreeRuns(user.clerkId);
             creditUsed = "free";
         }
 
-        // Get the request body for the actual analysis
+        // Parse request body containing variant information
         const body = await request.json() as AnalysisRequestBody;
 
-        // Call the Modal/GPU analysis endpoint
-        const analysisResult = await callModalAnalysis(body);
-
-        // Call VEP annotation in parallel (fire-and-forget style — failure is OK)
-        let vepAnnotation: unknown = null;
-        try {
-            // Use the correct reference from Modal analysis instead of input (which might be ambiguous like "N")
-            const correctReference = analysisResult.reference || body.reference || "N";
-            
-            const vepRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/vep`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                    chromosome: body.chromosome,
-                    position: body.variant_position,
-                    reference: correctReference,
-                    alternative: body.alternative,
-                }),
-                signal: AbortSignal.timeout(10000), // 10s max for VEP
-            });
-            if (vepRes.ok) {
-                const vepData = await vepRes.json() as { vep: unknown };
-                vepAnnotation = vepData.vep ?? null;
+        // ===== Stage 3: Reference Allele Fetch =====
+        // Fetch reference allele from UCSC Genome Browser if not provided by user
+        // This is required for accurate VEP annotation and validation
+        let referenceAllele = body.reference;
+        if (!referenceAllele) {
+            try {
+                console.log("[UCSC] Fetching reference allele from UCSC Genome Browser...");
+                const ucscUrl = `https://api.genome.ucsc.edu/getData/sequence?genome=${body.genome || 'hg38'};chrom=${body.chromosome};start=${body.variant_position - 1};end=${body.variant_position}`;
+                const ucscRes = await fetch(ucscUrl, { signal: AbortSignal.timeout(5000) });
+                if (ucscRes.ok) {
+                    const ucscData = await ucscRes.json() as { dna?: string };
+                    referenceAllele = ucscData.dna?.toUpperCase();
+                    console.log("[UCSC] Reference allele fetched:", referenceAllele);
+                }
+            } catch (error) {
+                console.warn("[UCSC] Failed to fetch reference from UCSC:", error);
             }
-        } catch {
-            // VEP timeout or network error — continue without it
-            console.warn("⚠️ VEP annotation failed — continuing without it");
         }
 
-        // Save the analysis result to database
+        // ===== Stage 4: VEP Molecular Consequence Annotation =====
+        // Fetch VEP annotation from Ensembl BEFORE Modal analysis to:
+        //   1. Provide molecular mechanism context for RAG generation
+        //   2. Enable VEP override logic for high-confidence variants
+        //   3. Enrich XAI explanations with structural consequences
+        let vepAnnotation: unknown = null;
+        if (referenceAllele && !/[NRYWSKMBDHV]/i.test(referenceAllele)) {
+            console.log("[VEP] Starting VEP fetch for:", {
+                chromosome: body.chromosome,
+                position: body.variant_position,
+                reference: referenceAllele,
+                alternative: body.alternative
+            });
+            try {
+                const vepRes = await fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000"}/api/vep`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        chromosome: body.chromosome,
+                        position: body.variant_position,
+                        reference: referenceAllele,
+                        alternative: body.alternative,
+                    }),
+                    signal: AbortSignal.timeout(10000), // 10 second timeout for Ensembl API
+                });
+                if (vepRes.ok) {
+                    const vepData = await vepRes.json() as { vep: unknown };
+                    vepAnnotation = vepData.vep ?? null;
+                    console.log("[VEP] Annotation fetched successfully:", vepAnnotation);
+                } else {
+                    console.warn("[VEP] Endpoint returned non-OK status:", vepRes.status);
+                }
+            } catch (error) {
+                // VEP failures are non-fatal - analysis continues without molecular consequence
+                console.warn("[VEP] Annotation failed, continuing without it:", error);
+            }
+        } else {
+            console.warn("[VEP] Skipping VEP fetch - reference allele unavailable or contains ambiguous bases:", referenceAllele);
+        }
+
+        // ===== Stage 5: Modal Backend Analysis =====
+        // Send complete variant data + VEP annotation to Evo2 backend for:
+        //   - GPU-accelerated sequence scoring
+        //   - Gene-specific threshold application
+        //   - VEP override logic
+        //   - Clinical enrichment (gnomAD, ACMG, PubMed)
+        const analysisResult = await callModalAnalysis({
+            ...body,
+            vep_annotation: vepAnnotation ?? undefined,
+        });
+
+        // ===== Stage 6: Database Persistence =====
+        // Save analysis results for history tracking and reporting
         try {
             await db.analysisReport.create({
                 data: {
@@ -140,7 +279,7 @@ export async function POST(request: NextRequest) {
                     geneSymbol: body.gene_symbol || "Unknown",
                     chromosome: body.chromosome,
                     position: body.variant_position,
-                    reference: body.reference || "",
+                    reference: analysisResult.reference || body.reference || "",
                     alternative: body.alternative,
                     genomeId: body.genome,
                     prediction: analysisResult.prediction || "",
@@ -157,13 +296,13 @@ export async function POST(request: NextRequest) {
                     vepAnnotation: vepAnnotation ?? undefined,
                 },
             });
-            console.log("✅ Analysis saved to database");
+            console.log("[DATABASE] Analysis saved successfully");
         } catch (saveError) {
-            console.error("Failed to save analysis to database:", saveError);
-            // Don't fail the request if save fails - the analysis was successful
+            console.error("[DATABASE] Failed to save analysis:", saveError);
+            // Database save failures are non-fatal - user still receives analysis results
         }
 
-        // Calculate updated credits
+        // Calculate updated credit balance for response
         const updatedCredits = creditUsed === "paid" ? user.credits - 1 : user.credits;
         const updatedFreeRuns = creditUsed === "free" ? user.freeRunsToday + 1 : user.freeRunsToday;
 
