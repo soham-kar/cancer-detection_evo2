@@ -1,3 +1,7 @@
+<div align="center">
+  <img src="pic.jpeg" alt="HelixMind - AI-Powered Cancer Variant Pathogenicity Prediction" width="100%">
+</div>
+
 # HelixMind - Cancer Variant Pathogenicity Prediction System
 
 A production-grade genomic variant analysis platform powered by **Evo2-7B** (evolutionary foundation model) for predicting pathogenicity of variants in 11 cancer-associated genes. Combines deep learning, clinical databases, and explainable AI to provide actionable insights for precision oncology.
