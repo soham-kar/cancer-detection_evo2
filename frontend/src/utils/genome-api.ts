@@ -81,6 +81,107 @@ export interface LiteratureContext {
   articles_found: number;
 }
 
+export interface EvidenceConfidence {
+  vep: { available: boolean; confidence: string; note: string };
+  evo2: { available: boolean; confidence: string; note: string };
+  gnomad: { available: boolean; confidence: string; note: string };
+  clinvar: { available: boolean; confidence: string; note: string };
+  uniprot: { available: boolean; confidence: string; note: string };
+  pubmed: { available: boolean; confidence: string; note: string };
+  overall: { level: string; sources_available: string; high_confidence_sources: string };
+}
+
+// ─── ISM (In-Silico Mutagenesis) Scan Types ─────────────────────────────
+
+export interface ISMAlternativeScore {
+  delta: number;
+  direction: "pathogenic" | "benign" | "neutral";
+  magnitude: number;
+}
+
+export interface ISMPositionData {
+  genomic_position: number | null;
+  relative_position: number;
+  reference: string;
+  alternatives: Record<string, ISMAlternativeScore>;
+  max_delta: number;
+  is_constrained: boolean;
+}
+
+export interface ISMScanSummary {
+  constrained_positions: number;
+  total_positions_scanned: number;
+  constraint_zone: "high" | "moderate" | "low";
+  peak_constraint_position: number | null;
+  peak_constraint_magnitude: number;
+  constraint_boundaries: number[];
+  scan_duration_ms: number;
+}
+
+export interface ISMScanResult {
+  scan_radius: number;
+  stride: number;
+  window_size: number;
+  reference_score: number;
+  positions: Record<string, ISMPositionData>;
+  summary: ISMScanSummary;
+}
+
+// ─── XAI Factor Types ──────────────────────────────────────────────────
+
+export interface XAIFactor {
+  label: string;
+  contribution: number;
+  color: string;
+  detail: string;
+}
+
+export interface XAIFactors {
+  factors: XAIFactor[];
+  total: number;
+}
+
+// ─── Counterfactual Types ──────────────────────────────────────────────
+
+export interface CounterfactualAllele {
+  delta: number;
+  prediction: string;
+  direction: "pathogenic" | "benign" | "neutral";
+  magnitude: number;
+}
+
+export interface Counterfactuals {
+  reference: string;
+  alternatives: Record<string, CounterfactualAllele>;
+  tolerated_alleles: string[];
+  pathogenic_alleles: string[];
+  neutral_alleles: string[];
+  summary: string;
+}
+
+// ─── ACMG Criteria Types ───────────────────────────────────────────────
+
+export interface ACMGCriterion {
+  met: boolean;
+  strength: string | null;
+  rationale: string;
+}
+
+export interface ACMGCriteriaResult {
+  criteria: Record<string, ACMGCriterion>;
+  met_count: number;
+  total_evaluated: number;
+  strength_counts: {
+    very_strong: number;
+    strong: number;
+    moderate: number;
+    supporting: number;
+    standalone: number;
+  };
+  acmg_classification: string;
+  classification_rationale: string;
+}
+
 export interface AnalysisResult {
   position: number;
   reference: string;
@@ -93,6 +194,34 @@ export interface AnalysisResult {
   population_frequency?: PopulationFrequency;
   acmg_evidence?: ACMGEvidence;
   literature_context?: LiteratureContext;
+  // Multi-modal RAG output
+  clinical_summary?: string | null;
+  evidence_confidence?: EvidenceConfidence;
+  // In-Silico Mutagenesis scan
+  ism_scan?: ISMScanResult | null;
+  // XAI confidence decomposition (backend-computed)
+  xai_factors?: XAIFactors | null;
+  // Counterfactual analysis (from ISM position 0)
+  counterfactuals?: Counterfactuals | null;
+  // ACMG/AMP criteria mapping
+  acmg_criteria?: ACMGCriteriaResult | null;
+  // Legacy raw evidence (for power users)
+  clinvar_evidence?: {
+    status: string | null;
+    review_status: string | null;
+    variation_id: string | null;
+    num_submitters: number;
+    conflicting: boolean;
+    summary: string | null;
+  } | null;
+  protein_context?: {
+    accession: string | null;
+    protein_name: string | null;
+    function: string | null;
+    domains: Array<{ name: string; start: number; end: number }>;
+    subcellular_location: string | null;
+    disease_associations: string[];
+  } | null;
 }
 
 export async function getAvailableGenomes() {
@@ -409,12 +538,18 @@ export async function analyzeVariantWithAPI({
   genomeId,
   chromosome,
   geneSymbol,
+  runISMScan = false,
+  ismScanRadius = 20,
+  ismScanStride = 1,
 }: {
   position: number;
   alternative: string;
   genomeId: string;
   chromosome: string;
   geneSymbol?: string;
+  runISMScan?: boolean;
+  ismScanRadius?: number;
+  ismScanStride?: number;
 }): Promise<AnalysisResult> {
   // Route through our credit-protected API
   const url = "/api/analyze";
@@ -434,6 +569,9 @@ export async function analyzeVariantWithAPI({
     genome: genomeId,
     chromosome: chromosome,
     gene_symbol: geneSymbol,
+    run_ism_scan: runISMScan,
+    ism_scan_radius: ismScanRadius,
+    ism_scan_stride: ismScanStride,
   };
 
   console.log("📤 Request body being sent:", requestBody);
@@ -446,7 +584,7 @@ export async function analyzeVariantWithAPI({
     body: JSON.stringify(requestBody),
   });
 
-  const result = await response.json();
+  const result = (await response.json()) as AnalysisResult & { needsCredits?: boolean; message?: string; error?: string };
 
   if (!response.ok) {
     // Handle credit-related errors
@@ -456,7 +594,7 @@ export async function analyzeVariantWithAPI({
         errorType: string;
       };
       error.needsCredits = true;
-      error.errorType = result.error;
+      error.errorType = result.error ?? "unknown";
       throw error;
     }
 
@@ -469,7 +607,7 @@ export async function analyzeVariantWithAPI({
   // Return the analysis result (Modal response is spread into the response)
   return {
     position: result.position || position,
-    reference: result.reference || reference || "",
+    reference: result.reference || "",
     alternative: result.alternative || alternative,
     delta_score: result.delta_score,
     prediction: result.prediction,
@@ -478,5 +616,10 @@ export async function analyzeVariantWithAPI({
     population_frequency: result.population_frequency,
     acmg_evidence: result.acmg_evidence,
     literature_context: result.literature_context,
+    // Multi-modal RAG fields
+    clinical_summary: result.clinical_summary ?? null,
+    evidence_confidence: result.evidence_confidence ?? undefined,
+    clinvar_evidence: result.clinvar_evidence ?? null,
+    protein_context: result.protein_context ?? null,
   };
 }

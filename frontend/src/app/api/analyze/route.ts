@@ -59,6 +59,9 @@ interface AnalysisRequestBody {
     clinvar_id?: string;
     analysis_source?: 'clinvar' | 'custom';
     vep_annotation?: unknown;
+    run_ism_scan?: boolean;
+    ism_scan_radius?: number;
+    ism_scan_stride?: number;
 }
 
 // =============================================================================
@@ -145,59 +148,79 @@ async function callModalAnalysis(body: AnalysisRequestBody) {
  */
 export async function POST(request: NextRequest) {
     try {
-        // ===== Stage 1: Authentication & Credit Management =====
-        const user = await getOrCreateUser();
+        // ===== Stage 1: Authentication (Clerk only, DB optional) =====
+        let user: { clerkId: string; credits: number; freeRunsToday: number; cooldownUntil: Date | null } | null = null;
+        let dbAvailable = true;
 
-        // Check if user is in cooldown period (free tier exhausted)
-        if (user.cooldownUntil && new Date(user.cooldownUntil) > new Date()) {
-            const remainingTime = Math.ceil(
-                (new Date(user.cooldownUntil).getTime() - Date.now()) / (1000 * 60 * 60)
-            );
-            return NextResponse.json(
-                {
-                    error: "cooldown_active",
-                    message: `You've used all free credits. Please wait ${remainingTime} hours or purchase credits.`,
-                    cooldownUntil: user.cooldownUntil,
-                    needsCredits: true,
-                },
-                { status: 429 }
-            );
+        try {
+            user = await getOrCreateUser();
+        } catch (dbError) {
+            console.warn("[DB] Database unavailable, running in stateless mode:", (dbError as Error).message);
+            dbAvailable = false;
+            // Fallback: authenticate via Clerk directly without DB
+            const { currentUser } = await import("@clerk/nextjs/server");
+            const clerkUser = await currentUser();
+            if (!clerkUser) {
+                return NextResponse.json(
+                    { error: "unauthorized", message: "Please sign in to continue" },
+                    { status: 401 }
+                );
+            }
+            user = {
+                clerkId: clerkUser.id,
+                credits: 999,
+                freeRunsToday: 0,
+                cooldownUntil: null,
+            };
         }
 
-        // Check if free tier limit reached and no paid credits available
-        if (user.freeRunsToday >= FREE_LIMIT_PER_DAY && user.credits <= 0) {
-            // Activate cooldown period to prevent abuse
-            const cooldownUntil = new Date();
-            cooldownUntil.setDate(cooldownUntil.getDate() + COOLDOWN_DAYS);
+        // ===== Stage 2: Credit Check (skip if DB unavailable) =====
+        let creditUsed: "paid" | "free" | "none" = "none";
 
-            await setCooldown(user.clerkId, cooldownUntil);
+        if (dbAvailable && user) {
+            // Check if user is in cooldown period
+            if (user.cooldownUntil && new Date(user.cooldownUntil) > new Date()) {
+                const remainingTime = Math.ceil(
+                    (new Date(user.cooldownUntil).getTime() - Date.now()) / (1000 * 60 * 60)
+                );
+                return NextResponse.json(
+                    {
+                        error: "cooldown_active",
+                        message: `You've used all free credits. Please wait ${remainingTime} hours or purchase credits.`,
+                        cooldownUntil: user.cooldownUntil,
+                        needsCredits: true,
+                    },
+                    { status: 429 }
+                );
+            }
 
-            return NextResponse.json(
-                {
-                    error: "free_limit_reached",
-                    message: `You've used your ${FREE_LIMIT_PER_DAY} free analyses today. Purchase credits or wait 2 days.`,
-                    cooldownUntil,
-                    needsCredits: true,
-                },
-                { status: 429 }
-            );
+            // Check if free tier limit reached
+            if (user.freeRunsToday >= FREE_LIMIT_PER_DAY && user.credits <= 0) {
+                const cooldownUntil = new Date();
+                cooldownUntil.setDate(cooldownUntil.getDate() + COOLDOWN_DAYS);
+                try { await setCooldown(user.clerkId, cooldownUntil); } catch (_) {}
+                return NextResponse.json(
+                    {
+                        error: "free_limit_reached",
+                        message: `You've used your ${FREE_LIMIT_PER_DAY} free analyses today. Purchase credits or wait 2 days.`,
+                        cooldownUntil,
+                        needsCredits: true,
+                    },
+                    { status: 429 }
+                );
+            }
+
+            // Deduct credit
+            if (user.credits > 0) {
+                try { await deductCredit(user.clerkId); } catch (_) {}
+                creditUsed = "paid";
+            } else {
+                try { await incrementFreeRuns(user.clerkId); } catch (_) {}
+                creditUsed = "free";
+            }
         }
 
-        // ===== Stage 2: Credit Deduction =====
-        // Priority: Paid credits → Free credits
-        let creditUsed: "paid" | "free";
-
-        if (user.credits > 0) {
-            // Deduct from paid credit balance
-            await deductCredit(user.clerkId);
-            creditUsed = "paid";
-        } else {
-            // Use free daily allowance
-            await incrementFreeRuns(user.clerkId);
-            creditUsed = "free";
-        }
-
-        // Parse request body containing variant information
+        // Parse request body
         const body = await request.json() as AnalysisRequestBody;
 
         // ===== Stage 3: Reference Allele Fetch =====
@@ -270,41 +293,49 @@ export async function POST(request: NextRequest) {
             vep_annotation: vepAnnotation ?? undefined,
         });
 
-        // ===== Stage 6: Database Persistence =====
-        // Save analysis results for history tracking and reporting
-        try {
-            await db.analysisReport.create({
-                data: {
-                    clerkUserId: user.clerkId,
-                    geneSymbol: body.gene_symbol || "Unknown",
-                    chromosome: body.chromosome,
-                    position: body.variant_position,
-                    reference: analysisResult.reference || body.reference || "",
-                    alternative: body.alternative,
-                    genomeId: body.genome,
-                    prediction: analysisResult.prediction || "",
-                    deltaScore: analysisResult.delta_score || 0,
-                    classificationConfidence: analysisResult.classification_confidence || 0,
-                    classificationSource: analysisResult.classification_source || null,
-                    clinvarClassification: body.clinvar_classification || null,
-                    variationType: body.variation_type || null,
-                    clinvarId: body.clinvar_id || null,
-                    populationFrequency: analysisResult.population_frequency || null,
-                    acmgEvidence: analysisResult.acmg_evidence || null,
-                    literatureContext: analysisResult.literature_context || null,
-                    analysisSource: body.analysis_source || null,
-                    vepAnnotation: vepAnnotation ?? undefined,
-                },
-            });
-            console.log("[DATABASE] Analysis saved successfully");
-        } catch (saveError) {
-            console.error("[DATABASE] Failed to save analysis:", saveError);
-            // Database save failures are non-fatal - user still receives analysis results
+        // ===== Stage 6: Database Persistence (skip if DB unavailable) =====
+        if (dbAvailable) {
+            try {
+                // Serialize JSON fields to strings for SQLite compatibility
+                const toJsonString = (val: unknown) => val ? JSON.stringify(val) : null;
+                await db.analysisReport.create({
+                    data: {
+                        clerkUserId: user!.clerkId,
+                        geneSymbol: body.gene_symbol || "Unknown",
+                        chromosome: body.chromosome,
+                        position: body.variant_position,
+                        reference: analysisResult.reference || body.reference || "",
+                        alternative: body.alternative,
+                        genomeId: body.genome,
+                        prediction: analysisResult.prediction || "",
+                        deltaScore: analysisResult.delta_score || 0,
+                        classificationConfidence: analysisResult.classification_confidence || 0,
+                        classificationSource: analysisResult.classification_source || null,
+                        clinvarClassification: body.clinvar_classification || null,
+                        variationType: body.variation_type || null,
+                        clinvarId: body.clinvar_id || null,
+                        populationFrequency: toJsonString(analysisResult.population_frequency),
+                        acmgEvidence: toJsonString(analysisResult.acmg_evidence),
+                        literatureContext: toJsonString(analysisResult.literature_context),
+                        clinicalSummary: analysisResult.clinical_summary ?? null,
+                        evidenceConfidence: toJsonString(analysisResult.evidence_confidence),
+                        ismScanData: toJsonString(analysisResult.ism_scan),
+                        xaiFactors: toJsonString(analysisResult.xai_factors),
+                        counterfactuals: toJsonString(analysisResult.counterfactuals),
+                        acmgCriteria: toJsonString(analysisResult.acmg_criteria),
+                        analysisSource: body.analysis_source || null,
+                        vepAnnotation: toJsonString(vepAnnotation),
+                    },
+                });
+                console.log("[DATABASE] Analysis saved successfully");
+            } catch (saveError) {
+                console.error("[DATABASE] Failed to save analysis:", saveError);
+            }
         }
 
         // Calculate updated credit balance for response
-        const updatedCredits = creditUsed === "paid" ? user.credits - 1 : user.credits;
-        const updatedFreeRuns = creditUsed === "free" ? user.freeRunsToday + 1 : user.freeRunsToday;
+        const updatedCredits = creditUsed === "paid" ? (user?.credits ?? 0) - 1 : (user?.credits ?? 0);
+        const updatedFreeRuns = creditUsed === "free" ? (user?.freeRunsToday ?? 0) + 1 : (user?.freeRunsToday ?? 0);
 
         // Return success with analysis result and credit info
         return NextResponse.json({
@@ -313,11 +344,18 @@ export async function POST(request: NextRequest) {
             remainingCredits: updatedCredits,
             freeRunsToday: updatedFreeRuns,
             freeRunsRemaining: FREE_LIMIT_PER_DAY - updatedFreeRuns,
+            dbAvailable,
             ...analysisResult, // Spread the Modal API response
         });
 
     } catch (error) {
         console.error("Analysis API error:", error);
+        // Log full error details for debugging
+        if (error instanceof Error) {
+            console.error("Error name:", error.name);
+            console.error("Error message:", error.message);
+            console.error("Error stack:", error.stack);
+        }
 
         if (error instanceof Error && error.message === "Unauthorized: No user found") {
             return NextResponse.json(
@@ -333,8 +371,10 @@ export async function POST(request: NextRequest) {
             );
         }
 
+        // Return the actual error message for debugging
+        const errorMessage = error instanceof Error ? error.message : "Internal server error";
         return NextResponse.json(
-            { error: "internal_error", message: "Internal server error" },
+            { error: "internal_error", message: errorMessage },
             { status: 500 }
         );
     }

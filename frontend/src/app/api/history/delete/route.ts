@@ -4,7 +4,15 @@ import { db } from "~/lib/db";
 
 export async function DELETE(request: NextRequest) {
     try {
-        const user = await getOrCreateUser();
+        let clerkId: string;
+        try {
+            const user = await getOrCreateUser();
+            clerkId = user.clerkId;
+        } catch (dbError) {
+            console.warn("[DB] Database unavailable for delete:", (dbError as Error).message);
+            return NextResponse.json({ success: true, dbAvailable: false });
+        }
+
         const { reportId } = await request.json();
 
         if (!reportId) {
@@ -18,7 +26,7 @@ export async function DELETE(request: NextRequest) {
         const report = await db.analysisReport.findFirst({
             where: {
                 id: reportId,
-                clerkUserId: user.clerkId,
+                clerkUserId: clerkId,
             },
         });
 

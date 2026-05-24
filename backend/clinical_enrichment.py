@@ -1,10 +1,12 @@
 """
 Clinical Enrichment Module for Variant Analysis
 
-This module provides three clinical value layers:
-1. GnomadClient - Population frequency filtering (ACMG BA1/BS1)
+This module provides five clinical evidence layers:
+1. GnomadClient - Population frequency filtering (ACMG BA1/BS1/PM2)
 2. ACMGMapper - Evidence code mapping (PP3/BP4)
 3. PubMedRAG - Literature context retrieval
+4. ClinVarClient - Clinical consensus from NCBI ClinVar database
+5. UniProtClient - Protein function and domain annotations
 
 These transform raw AI scores into clinically actionable outputs.
 """
@@ -12,9 +14,10 @@ These transform raw AI scores into clinically actionable outputs.
 import os
 import json
 import logging
+import time
 import requests
 from typing import Optional, Dict, Any, List
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from Bio import Entrez
 
@@ -547,6 +550,408 @@ Format Requirements:
         
         return result
 
+# =============================================================================
+# 4. CLINVAR CLIENT - Clinical Consensus Evidence
+# =============================================================================
+
+@dataclass
+class ClinVarResult:
+    """Result from ClinVar query"""
+    status: str  # Pathogenic, Benign, VUS, etc.
+    review_status: str  # Expert panel, multiple submitters, single submitter
+    variation_id: Optional[str]
+    num_submitters: int = 0
+    conflicting: bool = False
+    text: str = ""
+
+
+class ClinVarClient:
+    """
+    Client for querying NCBI ClinVar database for clinical classifications.
+    
+    Provides real-time clinical consensus data for variant interpretation.
+    Uses NCBI Entrez API (same as PubMed) for consistency.
+    """
+    
+    def __init__(self, redis_client=None, cache_ttl: int = 2592000):
+        self.redis = redis_client
+        self.cache_ttl = cache_ttl
+    
+    def get_variant_status(
+        self,
+        gene_symbol: str,
+        variant_str: str  # e.g., "G>T" or "c.5266dupC"
+    ) -> ClinVarResult:
+        """
+        Query ClinVar for variant classification.
+        
+        Args:
+            gene_symbol: HGNC gene symbol (e.g., 'BRCA1')
+            variant_str: Variant description string
+            
+        Returns:
+            ClinVarResult with classification, review status, and metadata
+        """
+        cache_key = f"clinvar:{gene_symbol}:{variant_str}"
+        
+        # Try cache first
+        if self.redis:
+            try:
+                cached = self.redis.get(cache_key)
+                if cached:
+                    logger.info(f"ClinVar Cache HIT: {gene_symbol} {variant_str}")
+                    data = json.loads(cached) if isinstance(cached, str) else json.loads(cached.decode())
+                    return ClinVarResult(**data)
+            except Exception as e:
+                logger.warning(f"ClinVar cache read error: {e}")
+        
+        logger.info(f"ClinVar Cache MISS: Querying for {gene_symbol} {variant_str}")
+        
+        try:
+            # Broad search: gene + variant description
+            query = f"{gene_symbol}[Gene Name] AND {variant_str}"
+            handle = Entrez.esearch(db="clinvar", term=query, retmax=5)
+            record = Entrez.read(handle, validate=False)
+            handle.close()
+            uids = record.get("IdList", [])
+            
+            if not uids:
+                result = ClinVarResult(
+                    status="Not Found",
+                    review_status="N/A",
+                    variation_id=None,
+                    text=f"Variant '{variant_str}' not found in ClinVar (Novel VUS)."
+                )
+                self._cache_result(cache_key, result)
+                return result
+            
+            # Rate limiting for NCBI
+            time.sleep(0.35)
+            
+            # Fetch details for first match
+            handle = Entrez.esummary(db="clinvar", id=uids[0])
+            summary = Entrez.read(handle, validate=False)
+            handle.close()
+            
+            doc = summary["DocumentSummarySet"]["DocumentSummary"][0]
+            
+            # Extract classification (handle both dict and string formats)
+            classification = "Unknown"
+            if "germline_classification" in doc:
+                gc = doc["germline_classification"]
+                classification = gc.get("description", "Unknown") if isinstance(gc, dict) else str(gc)
+            elif "clinical_significance" in doc:
+                cs = doc["clinical_significance"]
+                classification = cs.get("description", "Unknown") if isinstance(cs, dict) else str(cs)
+            
+            # Extract review status
+            review_status = "Unknown"
+            if "review_status" in doc:
+                rs = doc["review_status"]
+                review_status = rs if isinstance(rs, str) else str(rs)
+            
+            # Count submitters
+            num_submitters = 0
+            if "submitters" in doc:
+                submitters = doc["submitters"]
+                if isinstance(submitters, list):
+                    num_submitters = len(submitters)
+            
+            # Check for conflicting interpretations
+            conflicting = "conflicting" in classification.lower()
+            
+            result = ClinVarResult(
+                status=classification,
+                review_status=review_status,
+                variation_id=uids[0],
+                num_submitters=num_submitters,
+                conflicting=conflicting,
+                text=f"ClinVar Classification: {classification} (Review: {review_status}, {num_submitters} submitters)"
+            )
+            
+            self._cache_result(cache_key, result)
+            return result
+            
+        except Exception as e:
+            logger.warning(f"ClinVar query failed: {e}")
+            result = ClinVarResult(
+                status="Error",
+                review_status="N/A",
+                variation_id=None,
+                text=f"ClinVar Error: {str(e)}"
+            )
+            return result
+    
+    def _cache_result(self, cache_key: str, result: ClinVarResult):
+        """Cache result if Redis is available"""
+        if self.redis:
+            try:
+                self.redis.set(cache_key, json.dumps(result.__dict__), ex=self.cache_ttl)
+            except Exception as e:
+                logger.warning(f"ClinVar cache write error: {e}")
+
+
+# =============================================================================
+# 5. UNIPROT CLIENT - Protein Function & Domain Annotations
+# =============================================================================
+
+@dataclass
+class UniProtResult:
+    """Result from UniProt query"""
+    accession: Optional[str]
+    protein_name: Optional[str]
+    function: Optional[str]
+    domains: List[Dict[str, Any]] = field(default_factory=list)
+    subcellular_location: Optional[str] = None
+    disease_associations: List[str] = field(default_factory=list)
+    text: str = ""
+
+
+class UniProtClient:
+    """
+    Client for querying UniProtKB for protein function and domain annotations.
+    
+    Provides structural and functional context for variant interpretation:
+    - Protein function and catalytic activity
+    - Domain boundaries and active sites
+    - Subcellular localization
+    - Disease associations
+    """
+    
+    UNIPROT_REST_URL = "https://rest.uniprot.org/uniprotkb/search"
+    
+    def __init__(self, redis_client=None, cache_ttl: int = 2592000):
+        self.redis = redis_client
+        self.cache_ttl = cache_ttl
+    
+    def get_protein_info(self, gene_symbol: str) -> UniProtResult:
+        """
+        Query UniProtKB for protein annotations.
+        
+        Args:
+            gene_symbol: HGNC gene symbol (e.g., 'BRCA1')
+            
+        Returns:
+            UniProtResult with function, domains, and disease associations
+        """
+        cache_key = f"uniprot:{gene_symbol}"
+        
+        # Try cache first
+        if self.redis:
+            try:
+                cached = self.redis.get(cache_key)
+                if cached:
+                    logger.info(f"UniProt Cache HIT: {gene_symbol}")
+                    data = json.loads(cached) if isinstance(cached, str) else json.loads(cached.decode())
+                    return UniProtResult(**data)
+            except Exception as e:
+                logger.warning(f"UniProt cache read error: {e}")
+        
+        logger.info(f"UniProt Cache MISS: Querying for {gene_symbol}")
+        
+        try:
+            # Query for human gene (organism_id:9606)
+            params = {
+                "query": f"gene:{gene_symbol} AND organism_id:9606",
+                "fields": "accession,protein_name,cc_function,cc_subcellular_location,cc_disease,ft_domain",
+                "format": "json",
+                "size": 1
+            }
+            
+            resp = requests.get(self.UNIPROT_REST_URL, params=params, timeout=10)
+            resp.raise_for_status()
+            data = resp.json()
+            
+            if not data.get("results"):
+                result = UniProtResult(
+                    accession=None,
+                    protein_name=None,
+                    function=None,
+                    text=f"Protein information not found for {gene_symbol}."
+                )
+                self._cache_result(cache_key, result)
+                return result
+            
+            result_data = data["results"][0]
+            
+            # Extract accession
+            accession = result_data.get("primaryAccession")
+            
+            # Extract protein name
+            protein_name = None
+            if "proteinDescription" in result_data:
+                recommended = result_data["proteinDescription"].get("recommendedName", {})
+                protein_name = recommended.get("fullName", {}).get("value")
+            
+            # Extract function
+            function = None
+            for comment in result_data.get("comments", []):
+                if comment.get("commentType") == "FUNCTION":
+                    texts = comment.get("texts", [])
+                    if texts:
+                        function = texts[0].get("value", "")[:800]
+                        break
+            
+            # Extract domains
+            domains = []
+            for feature in result_data.get("features", []):
+                if feature.get("type") == "Domain":
+                    domains.append({
+                        "name": feature.get("description", ""),
+                        "start": feature.get("location", {}).get("start", {}).get("value"),
+                        "end": feature.get("location", {}).get("end", {}).get("value")
+                    })
+            
+            # Extract subcellular location
+            subcellular = None
+            for comment in result_data.get("comments", []):
+                if comment.get("commentType") == "SUBCELLULAR_LOCATION":
+                    locs = comment.get("subcellularLocation", [])
+                    if locs:
+                        subcellular = locs[0].get("location", {}).get("value")
+                        break
+            
+            # Extract disease associations
+            diseases = []
+            for comment in result_data.get("comments", []):
+                if comment.get("commentType") == "DISEASE":
+                    disease_text = comment.get("disease", {}).get("description", "")
+                    if disease_text:
+                        diseases.append(disease_text[:200])
+            
+            result = UniProtResult(
+                accession=accession,
+                protein_name=protein_name,
+                function=function,
+                domains=domains,
+                subcellular_location=subcellular,
+                disease_associations=diseases,
+                text=f"UniProt {accession}: {protein_name or gene_symbol}"
+            )
+            
+            self._cache_result(cache_key, result)
+            return result
+            
+        except Exception as e:
+            logger.warning(f"UniProt query failed: {e}")
+            result = UniProtResult(
+                accession=None,
+                protein_name=None,
+                function=None,
+                text=f"UniProt Error: {str(e)}"
+            )
+            return result
+    
+    def _cache_result(self, cache_key: str, result: UniProtResult):
+        """Cache result if Redis is available"""
+        if self.redis:
+            try:
+                # Convert dataclass to dict for JSON serialization
+                self.redis.set(cache_key, json.dumps(result.__dict__), ex=self.cache_ttl)
+            except Exception as e:
+                logger.warning(f"UniProt cache write error: {e}")
+
+
+# =============================================================================
+# 6. EVIDENCE AGGREGATOR - Parallel Multi-Source Evidence Fetching
+# =============================================================================
+
+@dataclass
+class AggregatedEvidence:
+    """Complete evidence package for clinical summary generation"""
+    vep_annotation: Optional[Dict] = None
+    gnomad_result: Optional[GnomadResult] = None
+    clinvar_result: Optional[ClinVarResult] = None
+    uniprot_result: Optional[UniProtResult] = None
+    pubmed_articles: List[Dict] = field(default_factory=list)
+    evo2_delta: Optional[float] = None
+    evo2_confidence: Optional[float] = None
+    evo2_prediction: Optional[str] = None
+    acmg_evidence: Optional[ACMGEvidence] = None
+
+
+class EvidenceAggregator:
+    """
+    Parallel evidence fetcher that queries all clinical data sources simultaneously.
+    
+    Fetches ClinVar, UniProt, PubMed, and gnomAD in parallel to minimize latency.
+    Each source fails independently - partial results are still returned.
+    """
+    
+    def __init__(self, redis_client=None, llm_endpoint: str = None):
+        self.gnomad = GnomadClient(redis_client=redis_client)
+        self.acmg = ACMGMapper()
+        self.pubmed = PubMedRAG(redis_client=redis_client, llm_endpoint=llm_endpoint)
+        self.clinvar = ClinVarClient(redis_client=redis_client)
+        self.uniprot = UniProtClient(redis_client=redis_client)
+    
+    def gather_evidence(
+        self,
+        chromosome: str,
+        position: int,
+        ref: str,
+        alt: str,
+        gene_symbol: str,
+        delta_score: float,
+        confidence: float,
+        prediction: str,
+        vep_annotation: Optional[Dict] = None
+    ) -> AggregatedEvidence:
+        """
+        Gather all evidence sources in parallel.
+        
+        Each source is fetched independently with error handling.
+        Partial results are returned even if some sources fail.
+        """
+        import concurrent.futures
+        
+        evidence = AggregatedEvidence(
+            vep_annotation=vep_annotation,
+            evo2_delta=delta_score,
+            evo2_confidence=confidence,
+            evo2_prediction=prediction,
+            acmg_evidence=self.acmg.map_score_to_evidence(delta_score, confidence)
+        )
+        
+        # Build variant string for ClinVar query
+        variant_str = f"{ref}>{alt}" if ref and alt else alt
+        
+        # Fetch all sources in parallel
+        with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+            futures = {}
+            
+            # Submit all tasks
+            futures["gnomad"] = executor.submit(
+                self.gnomad.get_allele_frequency, chromosome, position, ref, alt
+            )
+            futures["clinvar"] = executor.submit(
+                self.clinvar.get_variant_status, gene_symbol, variant_str
+            )
+            futures["uniprot"] = executor.submit(
+                self.uniprot.get_protein_info, gene_symbol
+            )
+            futures["pubmed"] = executor.submit(
+                self.pubmed._search_pubmed, gene_symbol
+            )
+            
+            # Collect results (each fails independently)
+            for name, future in futures.items():
+                try:
+                    result = future.result(timeout=15)
+                    if name == "gnomad":
+                        evidence.gnomad_result = result
+                    elif name == "clinvar":
+                        evidence.clinvar_result = result
+                    elif name == "uniprot":
+                        evidence.uniprot_result = result
+                    elif name == "pubmed":
+                        evidence.pubmed_articles = result
+                except Exception as e:
+                    logger.warning(f"Evidence source '{name}' failed: {e}")
+        
+        return evidence
+
+
 # COMBINED ENRICHER - Convenience class for all enrichments
 class ClinicalEnricher:
     """
@@ -558,6 +963,9 @@ class ClinicalEnricher:
         self.gnomad = GnomadClient(redis_client=redis_client)
         self.acmg = ACMGMapper()
         self.pubmed = PubMedRAG(redis_client=redis_client, llm_endpoint=llm_endpoint)
+        self.clinvar = ClinVarClient(redis_client=redis_client)
+        self.uniprot = UniProtClient(redis_client=redis_client)
+        self.aggregator = EvidenceAggregator(redis_client=redis_client, llm_endpoint=llm_endpoint)
     
     def enrich_variant(
         self,

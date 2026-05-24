@@ -54,6 +54,7 @@ export default function KnownVariants({
   // Track which positions have been analyzed by this user
   const [analyzedReports, setAnalyzedReports] = useState<Map<number, SavedReport>>(new Map());
   const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null);
+  const [enableISM, setEnableISM] = useState(false);
 
   // Fetch user's analyzed variants for this gene
   useEffect(() => {
@@ -204,13 +205,8 @@ export default function KnownVariants({
         alternative: variantDetails.alternative,
         genomeId: genomeId,
         chromosome: gene.chrom,
-        // Don't pass reference - let backend fetch from genome
-        // ClinVar references often mismatch due to strand/assembly differences
         geneSymbol: gene.symbol,
-        clinvarClassification: variant.classification,
-        variationType: variant.variation_type,
-        clinvarId: variant.clinvar_id,
-        analysisSource: 'clinvar',
+        runISMScan: enableISM,
       });
 
       const updatedVariant: ClinvarVariant = {
@@ -263,16 +259,27 @@ export default function KnownVariants({
           <CardTitle className="text-sm font-normal text-[#3c4f3d]/70">
             Known Variants in Gene (<span className="font-semibold font-mono text-[#3c4f3d]">{gene.symbol}</span>) from ClinVar
           </CardTitle>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={refreshVariants}
-            disabled={isLoadingClinvar}
-            className="h-7 cursor-pointer text-xs text-[#3c4f3d] hover:bg-[#e9eeea]/70"
-          >
-            <RefreshCw className="mr-1 h-3 w-3" />
-            Refresh
-          </Button>
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={enableISM}
+                onChange={(e) => setEnableISM(e.target.checked)}
+                className="h-3 w-3 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span className="text-[10px] text-slate-500">ISM Scan</span>
+            </label>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={refreshVariants}
+              disabled={isLoadingClinvar}
+              className="h-7 cursor-pointer text-xs text-[#3c4f3d] hover:bg-[#e9eeea]/70"
+            >
+              <RefreshCw className="mr-1 h-3 w-3" />
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="pb-4">
           {clinvarError && (

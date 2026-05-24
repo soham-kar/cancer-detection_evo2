@@ -1,32 +1,29 @@
 -- CreateTable
 CREATE TABLE "users" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "clerkId" TEXT NOT NULL,
     "email" TEXT NOT NULL,
     "credits" INTEGER NOT NULL DEFAULT 5,
     "stripeCustomerId" TEXT,
     "freeRunsToday" INTEGER NOT NULL DEFAULT 0,
-    "cooldownUntil" TIMESTAMP(3),
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    "updatedAt" TIMESTAMP(3) NOT NULL,
-
-    CONSTRAINT "users_pkey" PRIMARY KEY ("id")
+    "cooldownUntil" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
 );
 
 -- CreateTable
 CREATE TABLE "payments" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "sessionId" TEXT NOT NULL,
     "creditsGranted" INTEGER NOT NULL,
     "clerkUserId" TEXT NOT NULL,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "payments_pkey" PRIMARY KEY ("id")
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "payments_clerkUserId_fkey" FOREIGN KEY ("clerkUserId") REFERENCES "users" ("clerkId") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateTable
 CREATE TABLE "analysis_reports" (
-    "id" TEXT NOT NULL,
+    "id" TEXT NOT NULL PRIMARY KEY,
     "clerkUserId" TEXT NOT NULL,
     "geneSymbol" TEXT NOT NULL,
     "chromosome" TEXT NOT NULL,
@@ -35,20 +32,19 @@ CREATE TABLE "analysis_reports" (
     "alternative" TEXT NOT NULL,
     "genomeId" TEXT NOT NULL,
     "prediction" TEXT NOT NULL,
-    "deltaScore" DOUBLE PRECISION NOT NULL,
-    "classificationConfidence" DOUBLE PRECISION NOT NULL,
+    "deltaScore" REAL NOT NULL,
+    "classificationConfidence" REAL NOT NULL,
     "classificationSource" TEXT,
     "clinvarClassification" TEXT,
     "variationType" TEXT,
     "clinvarId" TEXT,
-    "populationFrequency" JSONB,
-    "acmgEvidence" JSONB,
-    "literatureContext" JSONB,
+    "populationFrequency" TEXT,
+    "acmgEvidence" TEXT,
+    "literatureContext" TEXT,
     "analysisSource" TEXT,
-    "vepAnnotation" JSONB,
-    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-    CONSTRAINT "analysis_reports_pkey" PRIMARY KEY ("id")
+    "vepAnnotation" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "analysis_reports_clerkUserId_fkey" FOREIGN KEY ("clerkUserId") REFERENCES "users" ("clerkId") ON DELETE RESTRICT ON UPDATE CASCADE
 );
 
 -- CreateIndex
@@ -68,9 +64,3 @@ CREATE INDEX "analysis_reports_clerkUserId_idx" ON "analysis_reports"("clerkUser
 
 -- CreateIndex
 CREATE INDEX "analysis_reports_geneSymbol_idx" ON "analysis_reports"("geneSymbol");
-
--- AddForeignKey
-ALTER TABLE "payments" ADD CONSTRAINT "payments_clerkUserId_fkey" FOREIGN KEY ("clerkUserId") REFERENCES "users"("clerkId") ON DELETE RESTRICT ON UPDATE CASCADE;
-
--- AddForeignKey
-ALTER TABLE "analysis_reports" ADD CONSTRAINT "analysis_reports_clerkUserId_fkey" FOREIGN KEY ("clerkUserId") REFERENCES "users"("clerkId") ON DELETE RESTRICT ON UPDATE CASCADE;

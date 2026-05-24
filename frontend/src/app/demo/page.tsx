@@ -7,6 +7,10 @@ import { Button } from "~/components/ui/button";
 import ScoreGauge from "~/components/ScoreGauge";
 import TriModalGrid from "~/components/TriModalGrid";
 import MetadataSidebar from "~/components/MetadataSidebar";
+import { ISMHeatmap } from "~/components/ism-heatmap";
+import { CounterfactualCard } from "~/components/counterfactual-card";
+import { ACMGCriteriaTable } from "~/components/acmg-criteria-table";
+import type { ISMScanResult, Counterfactuals, ACMGCriteriaResult } from "~/utils/genome-api";
 
 interface DemoResult {
     success: boolean;
@@ -20,6 +24,24 @@ interface DemoResult {
     prediction: string;
     delta_score: number;
     classification_confidence: number;
+    // NEW: Multi-modal RAG fields
+    clinical_summary?: string | null;
+    evidence_confidence?: {
+        vep: { available: boolean; confidence: string; note: string };
+        evo2: { available: boolean; confidence: string; note: string };
+        gnomad: { available: boolean; confidence: string; note: string };
+        clinvar: { available: boolean; confidence: string; note: string };
+        uniprot: { available: boolean; confidence: string; note: string };
+        pubmed: { available: boolean; confidence: string; note: string };
+        overall: { level: string; sources_available: string; high_confidence_sources: string };
+    } | null;
+    // In-Silico Mutagenesis scan
+    ism_scan?: ISMScanResult | null;
+    // Counterfactual analysis
+    counterfactuals?: Counterfactuals | null;
+    // ACMG/AMP criteria mapping
+    acmg_criteria?: ACMGCriteriaResult | null;
+    // Legacy RAG structure for backward compatibility
     rag: {
         summary: string;
         clinvar_status: string;
@@ -406,64 +428,144 @@ function DemoContent() {
                             />
                         )}
 
-                        {/* 3. Full Synthesized Report */}
-                        {result.rag && (
+                        {/* 3. NEW: Multi-Modal RAG Clinical Summary */}
+                        {result.clinical_summary && (
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                                 <div className="border-b border-slate-200 bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-4">
                                     <h3 className="text-lg font-semibold text-white flex items-center gap-2">
                                         <FileText className="h-5 w-5 text-[#de8246]" />
-                                        Llama-3.3-70B Synthesized Report
+                                        Clinical Summary (Multi-Modal RAG)
                                     </h3>
                                     <p className="text-sm text-slate-400 mt-1">
-                                        AI-generated clinical narrative from tri-modal evidence
+                                        AI-generated clinical narrative from 5-source evidence synthesis
                                     </p>
                                 </div>
 
                                 <div className="p-8 space-y-4">
-                                    {/* Parse markdown sections */}
-                                    {result.rag.summary.split('\n\n').filter(Boolean).map((section, i) => {
-                                        // Split title and body
-                                        const parts = section.split(':');
-                                        const title = (parts[0] || '').replace(/\*\*/g, '').trim();
-                                        const body = parts.slice(1).join(':').replace(/\*\*/g, '').trim();
-
-                                        if (!body) return null;
-
-                                        // Generate section ID based on title
-                                        let sectionId = "";
-                                        if (title.toLowerCase().includes("clinical")) sectionId = "clinical-section";
-                                        if (title.toLowerCase().includes("mechanism") || title.toLowerCase().includes("biological")) sectionId = "mechanism-section";
-                                        if (title.toLowerCase().includes("evidence") || title.toLowerCase().includes("implication")) sectionId = "evidence-section";
-
-                                        // Assign colors based on section type
-                                        const dotColors = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500'];
-                                        const dotColor = dotColors[i % dotColors.length];
-
+                                    {/* Parse § sections */}
+                                    {result.clinical_summary.split('\n\n').filter(Boolean).map((section, i) => {
+                                        const sectionMatch = section.match(/^§(\d+)\s+(.+)$/m);
+                                        if (sectionMatch) {
+                                            const sectionNum = sectionMatch[1];
+                                            const sectionTitle = sectionMatch[2];
+                                            const restOfBlock = section.slice(sectionMatch[0].length).trim();
+                                            return (
+                                                <div key={i} className="bg-slate-50 p-4 rounded-lg border-l-2 border-[#de8246] scroll-mt-24">
+                                                    <h3 className="text-xs font-semibold uppercase tracking-wider text-[#de8246] mb-2">
+                                                        §{sectionNum} {sectionTitle}
+                                                    </h3>
+                                                    <p className="text-slate-700 leading-relaxed text-sm whitespace-pre-line">
+                                                        {restOfBlock}
+                                                    </p>
+                                                </div>
+                                            );
+                                        }
                                         return (
-                                            <div
-                                                key={i}
-                                                id={sectionId}
-                                                className="bg-slate-50 p-4 rounded-lg border border-slate-100 scroll-mt-24 transition-all duration-500"
-                                            >
-                                                <h3 className="font-bold text-slate-900 mb-2 flex items-center gap-2">
-                                                    <span className={`w-2 h-2 rounded-full ${dotColor}`}></span>
-                                                    {title}
-                                                </h3>
-                                                <p className="text-slate-700 leading-relaxed text-sm">
-                                                    {body}
+                                            <div key={i} className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                                                <p className="text-slate-700 leading-relaxed text-sm whitespace-pre-line">
+                                                    {section}
                                                 </p>
                                             </div>
                                         );
                                     })}
                                 </div>
 
-                                {/* References / PMID Links - Always show this section */}
+                                {/* NEW: Evidence Confidence Matrix */}
+                                {result.evidence_confidence && (
+                                    <div className="px-8 pb-8">
+                                        <div className="border-t border-slate-100 pt-6">
+                                            <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
+                                                Evidence Confidence
+                                            </h4>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                {Object.entries(result.evidence_confidence)
+                                                    .filter(([key]) => key !== "overall")
+                                                    .map(([key, val]) => {
+                                                        const v = val as { available: boolean; confidence: string; note: string };
+                                                        const color =
+                                                            v.confidence === "High"
+                                                                ? "bg-green-50 text-green-700 border-green-200"
+                                                                : v.confidence === "Medium"
+                                                                    ? "bg-yellow-50 text-yellow-700 border-yellow-200"
+                                                                    : v.confidence === "Low"
+                                                                        ? "bg-orange-50 text-orange-700 border-orange-200"
+                                                                        : "bg-gray-50 text-gray-500 border-gray-200";
+                                                        return (
+                                                            <div key={key} className={`rounded border px-2 py-1.5 ${color}`} title={v.note}>
+                                                                <div className="flex items-center justify-between">
+                                                                    <span className="text-[10px] font-semibold uppercase tracking-wide">{key}</span>
+                                                                    <span className="text-[10px] font-medium">{v.confidence}</span>
+                                                                </div>
+                                                                <div className="mt-0.5 text-[9px] leading-tight opacity-80">
+                                                                    {v.available ? "Available" : "Missing"}
+                                                                </div>
+                                                            </div>
+                                                        );
+                                                    })}
+                                            </div>
+                                            {result.evidence_confidence.overall && (
+                                                <div className="mt-2 flex items-center gap-2">
+                                                    <span className="text-[10px] text-slate-600">Overall:</span>
+                                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                                        result.evidence_confidence.overall.level === "High"
+                                                            ? "bg-green-100 text-green-800"
+                                                            : result.evidence_confidence.overall.level === "Medium"
+                                                                ? "bg-yellow-100 text-yellow-800"
+                                                                : "bg-red-100 text-red-800"
+                                                    }`}>
+                                                        {result.evidence_confidence.overall.level}
+                                                    </span>
+                                                    <span className="text-[10px] text-slate-500">
+                                                        {result.evidence_confidence.overall.sources_available} sources, {result.evidence_confidence.overall.high_confidence_sources} high-confidence
+                                                    </span>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+
+                                {/* Disclaimer */}
+                                <div className="mx-8 mb-8 rounded bg-amber-50 border border-amber-200 p-3">
+                                    <div className="flex items-start gap-2">
+                                        <AlertTriangle className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" />
+                                        <p className="text-[11px] leading-relaxed text-amber-800">
+                                            <strong>Computational Prediction Only:</strong> This summary is generated by an AI model (Llama 3.3 70B) using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                {/* In-Silico Mutagenesis Scan */}
+                                {result.ism_scan && (
+                                    <div className="mx-8 mb-8">
+                                        <ISMHeatmap
+                                            data={result.ism_scan}
+                                            geneSymbol={result.variant?.gene}
+                                            variantPosition={result.variant?.position ?? 0}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Counterfactual Analysis */}
+                                {result.counterfactuals && (
+                                    <div className="mx-8 mb-8">
+                                        <CounterfactualCard data={result.counterfactuals} />
+                                    </div>
+                                )}
+
+                                {/* ACMG/AMP Criteria Mapping */}
+                                {result.acmg_criteria && (
+                                    <div className="mx-8 mb-8">
+                                        <ACMGCriteriaTable data={result.acmg_criteria} />
+                                    </div>
+                                )}
+
+                                {/* References / PMID Links */}
                                 <div className="pt-6 mt-4 mx-8 mb-8 border-t border-slate-100">
                                     <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">
                                         References
                                     </h4>
                                     <div className="flex flex-wrap gap-2 items-center">
-                                        {result.rag.pmids && result.rag.pmids.length > 0 ? (
+                                        {result.rag?.pmids && result.rag.pmids.length > 0 ? (
                                             <>
                                                 {result.rag.pmids.map((pmid: string) => (
                                                     <a
@@ -479,7 +581,6 @@ function DemoContent() {
                                                         PMID:{pmid}
                                                     </a>
                                                 ))}
-                                                {/* Safety Net Link */}
                                                 <a
                                                     href={`https://pubmed.ncbi.nlm.nih.gov/?term=${result.variant.gene}+${encodeURIComponent(result.variant.variant)}`}
                                                     target="_blank"
@@ -491,9 +592,7 @@ function DemoContent() {
                                             </>
                                         ) : (
                                             <>
-                                                <span className="text-xs text-slate-400 italic">
-                                                    No direct PMIDs returned
-                                                </span>
+                                                <span className="text-xs text-slate-400 italic">No direct PMIDs returned</span>
                                                 <a
                                                     href={`https://pubmed.ncbi.nlm.nih.gov/?term=${result.variant.gene}+${encodeURIComponent(result.variant.variant)}`}
                                                     target="_blank"
@@ -509,13 +608,47 @@ function DemoContent() {
                             </div>
                         )}
 
-                        {/* Fallback when RAG is not available */}
-                        {!result.rag && (
+                        {/* Fallback: Legacy RAG summary (if no clinical_summary) */}
+                        {!result.clinical_summary && result.rag && (
+                            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                                <div className="border-b border-slate-200 bg-gradient-to-r from-slate-800 to-slate-900 px-6 py-4">
+                                    <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+                                        <FileText className="h-5 w-5 text-[#de8246]" />
+                                        Llama-3.3-70B Synthesized Report
+                                    </h3>
+                                    <p className="text-sm text-slate-400 mt-1">
+                                        AI-generated clinical narrative from tri-modal evidence
+                                    </p>
+                                </div>
+                                <div className="p-8 space-y-4">
+                                    {result.rag.summary.split('\n\n').filter(Boolean).map((section, i) => {
+                                        const parts = section.split(':');
+                                        const title = (parts[0] || '').replace(/\*\*/g, '').trim();
+                                        const body = parts.slice(1).join(':').replace(/\*\*/g, '').trim();
+                                        if (!body) return null;
+                                        const dotColors = ['bg-blue-500', 'bg-purple-500', 'bg-amber-500', 'bg-emerald-500', 'bg-rose-500'];
+                                        const dotColor = dotColors[i % dotColors.length];
+                                        return (
+                                            <div key={i} className="bg-slate-50 p-4 rounded-lg border border-slate-100">
+                                                <h3 className="font-bold text-slate-900 mb-2 flex items-center gap-2">
+                                                    <span className={`w-2 h-2 rounded-full ${dotColor}`}></span>
+                                                    {title}
+                                                </h3>
+                                                <p className="text-slate-700 leading-relaxed text-sm">{body}</p>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Fallback when no analysis data */}
+                        {!result.clinical_summary && !result.rag && (
                             <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-8 text-center">
                                 <AlertTriangle className="h-12 w-12 text-amber-500 mx-auto mb-4" />
-                                <h4 className="text-lg font-medium text-slate-800 mb-2">RAG Pipeline Loading...</h4>
+                                <h4 className="text-lg font-medium text-slate-800 mb-2">Analysis Pipeline Loading...</h4>
                                 <p className="text-sm text-slate-600 mb-4">
-                                    The Tri-Modal RAG service is warming up. This happens on first request.
+                                    The Multi-Modal RAG service is warming up. This happens on first request.
                                 </p>
                                 <Button
                                     onClick={() => runAnalysis(selectedVariant || "brca1")}

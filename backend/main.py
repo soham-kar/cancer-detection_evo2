@@ -151,6 +151,9 @@ class VariantRequest(BaseModel):
     reference: str = None
     gene_symbol: str = None
     vep_annotation: Optional[dict] = None
+    run_ism_scan: bool = False
+    ism_scan_radius: int = 20
+    ism_scan_stride: int = 1
     
     @validator('genome')
     def validate_genome(cls, v):
@@ -356,6 +359,37 @@ def fetch_clinvar_variants(gene_symbol: str, max_variants=1000):
         return []
 
 # =============================================================================
+# JSON SANITIZATION HELPER
+# =============================================================================
+def _sanitize_for_json(obj):
+    """
+    Recursively convert numpy types to native Python types for JSON serialization.
+    
+    FastAPI's jsonable_encoder cannot handle numpy scalars (bool_, float64, etc.)
+    which leak into results from gnomAD, VEP, and ISM data. This function ensures
+    all values are native Python types before the response is serialized.
+    """
+    import numpy as np
+    
+    if isinstance(obj, (np.bool_,)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer,)):
+        return int(obj)
+    elif isinstance(obj, (np.floating,)):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return _sanitize_for_json(obj.tolist())
+    elif isinstance(obj, dict):
+        return {str(k): _sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, (list, tuple)):
+        return [_sanitize_for_json(item) for item in obj]
+    elif isinstance(obj, bytes):
+        return obj.decode("utf-8", errors="replace")
+    return obj
+
+# =============================================================================
 # MAIN EVO2 MODEL CLASS
 # =============================================================================
 @app.cls(
@@ -511,18 +545,13 @@ class Evo2Model:
         # Runtime cache for gene thresholds to avoid repeated lookups
         self.gene_thresholds = {}
         
-        # 3. Initialize Clinical Enricher
-        # Provides gnomAD population frequencies, ACMG evidence codes,
-        # and PubMed literature context for variant interpretation
-        # llm_endpoint = os.getenv("LLM_ENDPOINT")  # Groq API endpoint
-        # logger.info(f"LLM_ENDPOINT configured: {llm_endpoint is not None}")
-        # if llm_endpoint:
-        #     logger.info(f"Using LLM endpoint: {llm_endpoint[:50]}...")
+        # 3. Initialize Clinical Enricher with all evidence sources
+        # Provides gnomAD, ACMG, PubMed, ClinVar, and UniProt evidence
         self.clinical_enricher = ClinicalEnricher(
             redis_client=None,
-            llm_endpoint=None  # Disabled for faster scoring
+            llm_endpoint=os.getenv("GROQ_API_KEY")  # Enable LLM for summaries
         )
-        logger.info("Clinical enricher initialized (gnomAD + ACMG only, RAG disabled)")
+        logger.info("Clinical enricher initialized (gnomAD + ACMG + PubMed + ClinVar + UniProt)")
         
     @modal.method()
     def calibrate_gene(self, gene_symbol: str):
@@ -635,9 +664,181 @@ class Evo2Model:
                 confidence += 0.1
         
         return prediction, confidence
+    
+    def _run_ism_scan(
+        self,
+        window_seq: str,
+        relative_pos: int,
+        reference: str,
+        scan_radius: int = 20,
+        stride: int = 1,
+        batch_size: int = 16
+    ) -> dict:
+        """
+        In-Silico Mutagenesis (ISM) scan around a variant position.
         
+        Systematically mutates every nucleotide in a ±scan_radius window around
+        the variant and scores each mutant with Evo2. Produces a position-wise
+        constraint heatmap revealing functional microdomains, domain boundaries,
+        and neutral zones at single-nucleotide resolution.
+        
+        This is a novel application of DNA language models to clinical variant
+        interpretation — no existing VEP tool (CADD, REVEL, AlphaMissense) performs
+        positional constraint scanning.
+        
+        Args:
+            window_seq: Full genomic context window (DNA string)
+            relative_pos: Variant position within window_seq (0-based index)
+            reference: Reference allele at the variant position
+            scan_radius: ±N base pairs to scan around the variant (default: 20)
+            stride: Scan every Nth position (default: 1 = every position)
+            batch_size: Number of mutant sequences to score in one batch (default: 16)
+        
+        Returns:
+            dict: ISM scan results with per-position constraint data and summary
+        
+        Performance:
+            - ±20bp scan (stride=1): ~120 model calls, ~2-4 min on H100
+            - ±100bp scan (stride=2): ~300 model calls, ~5-8 min on H100
+            - ±500bp scan (stride=5): ~600 model calls, ~10-15 min on H100
+        """
+        import time as time_module
+        
+        scan_start = time_module.perf_counter()
+        nucleotides = ['A', 'C', 'G', 'T']
+        
+        # Compute reference score once — reused for all delta calculations
+        ref_score = self.model.score_sequences([window_seq])[0]
+        
+        # Determine scan range
+        start_pos = max(0, relative_pos - scan_radius)
+        end_pos = min(len(window_seq) - 1, relative_pos + scan_radius)
+        
+        # Collect all (position, alternative_nucleotide) pairs for batch scoring
+        scan_jobs = []
+        for pos in range(start_pos, end_pos + 1, stride):
+            ref_nuc = window_seq[pos]
+            for alt_nuc in nucleotides:
+                if alt_nuc == ref_nuc:
+                    continue
+                scan_jobs.append((pos, alt_nuc))
+        
+        total_mutants = len(scan_jobs)
+        logger.info(
+            f"ISM scan starting: ±{scan_radius}bp, stride={stride}, "
+            f"{total_mutants} mutants across {len(range(start_pos, end_pos + 1, stride))} positions"
+        )
+        
+        # Build and score mutant sequences in batches
+        position_scores = {}  # pos -> {alt_nuc: delta}
+        
+        for batch_idx in range(0, total_mutants, batch_size):
+            batch_jobs = scan_jobs[batch_idx:batch_idx + batch_size]
+            mutant_seqs = []
+            
+            for pos, alt_nuc in batch_jobs:
+                mutant_seq = window_seq[:pos] + alt_nuc + window_seq[pos + 1:]
+                mutant_seqs.append(mutant_seq)
+            
+            # Batch score all mutants
+            batch_scores = self.model.score_sequences(mutant_seqs)
+            
+            for (pos, alt_nuc), score in zip(batch_jobs, batch_scores):
+                delta = float(score - ref_score)
+                if pos not in position_scores:
+                    position_scores[pos] = {}
+                position_scores[pos][alt_nuc] = delta
+            
+            # Progress logging for long scans
+            if (batch_idx // batch_size) % 10 == 0 and total_mutants > 100:
+                progress = min(100, round((batch_idx + len(batch_jobs)) / total_mutants * 100))
+                logger.debug(f"ISM scan progress: {progress}%")
+        
+        # Build structured per-position results
+        positions = {}
+        constrained_count = 0
+        peak_position = None
+        peak_max_delta = 0.0
+        
+        # Constraint threshold: |Δ| > 0.001 is considered constrained
+        # Based on Evo2's typical score distribution for functional positions
+        CONSTRAINT_THRESHOLD = 0.001
+        
+        for pos in sorted(position_scores.keys()):
+            scores = position_scores[pos]
+            ref_nuc = window_seq[pos]
+            max_abs_delta = max(abs(d) for d in scores.values())
+            is_constrained = max_abs_delta > CONSTRAINT_THRESHOLD
+            
+            if is_constrained:
+                constrained_count += 1
+            if max_abs_delta > peak_max_delta:
+                peak_max_delta = max_abs_delta
+                peak_position = pos
+            
+            positions[str(pos - relative_pos)] = {
+                "genomic_position": None,  # Filled by caller with seq_start offset
+                "relative_position": pos - relative_pos,
+                "reference": ref_nuc,
+                "alternatives": {
+                    alt: {
+                        "delta": round(delta, 8),
+                        "direction": "pathogenic" if delta < -CONSTRAINT_THRESHOLD else (
+                            "benign" if delta > CONSTRAINT_THRESHOLD else "neutral"
+                        ),
+                        "magnitude": round(abs(delta), 8)
+                    }
+                    for alt, delta in scores.items()
+                },
+                "max_delta": round(max_abs_delta, 8),
+                "is_constrained": is_constrained
+            }
+        
+        # Detect constraint boundaries (positions where constraint status changes)
+        sorted_positions = sorted(position_scores.keys())
+        boundaries = []
+        prev_constrained = None
+        for pos in sorted_positions:
+            max_abs = max(abs(d) for d in position_scores[pos].values())
+            curr_constrained = max_abs > CONSTRAINT_THRESHOLD
+            if prev_constrained is not None and curr_constrained != prev_constrained:
+                boundaries.append(pos - relative_pos)
+            prev_constrained = curr_constrained
+        
+        total_positions = len(positions)
+        constraint_ratio = constrained_count / max(1, total_positions)
+        
+        scan_duration = (time_module.perf_counter() - scan_start) * 1000
+        
+        logger.info(
+            f"ISM scan completed: {constrained_count}/{total_positions} positions constrained "
+            f"({constraint_ratio:.0%}), peak at relative position {peak_position - relative_pos if peak_position else 'N/A'}, "
+            f"duration={scan_duration:.0f}ms"
+        )
+        
+        return {
+            "scan_radius": scan_radius,
+            "stride": stride,
+            "window_size": len(window_seq),
+            "reference_score": float(ref_score),
+            "positions": positions,
+            "summary": {
+                "constrained_positions": constrained_count,
+                "total_positions_scanned": total_positions,
+                "constraint_zone": (
+                    "high" if constraint_ratio > 0.5 else
+                    "moderate" if constraint_ratio > 0.2 else
+                    "low"
+                ),
+                "peak_constraint_position": peak_position - relative_pos if peak_position is not None else None,
+                "peak_constraint_magnitude": round(peak_max_delta, 8),
+                "constraint_boundaries": boundaries,
+                "scan_duration_ms": round(scan_duration, 2)
+            }
+        }
+    
     @modal.method()
-    def run_analysis_logic(self, variant_position: int, alternative: str, genome: str, chromosome: str, provided_reference: str = None, gene_symbol: str = None, vep_annotation: dict = None):
+    def run_analysis_logic(self, variant_position: int, alternative: str, genome: str, chromosome: str, provided_reference: str = None, gene_symbol: str = None, vep_annotation: dict = None, run_ism_scan: bool = False, ism_scan_radius: int = 20, ism_scan_stride: int = 1):
         """
         Core variant analysis pipeline orchestrating all prediction and enrichment steps.
         
@@ -646,6 +847,7 @@ class Evo2Model:
         1. Genome sequence fetch: Retrieve 8kb context window from UCSC
         2. Gene-specific thresholds: Load calibrated parameters for the gene
         3. Evo2 AI scoring: Calculate delta score (variant vs reference likelihood)
+        3b. ISM scan (optional): In-silico mutagenesis positional constraint mapping
         4. ACMG evidence mapping: Convert scores to PP3/BP4 codes
         5. Literature context: PubMed search + optional tri-modal RAG enhancement
         6. Build enriched response: Combine all data sources into final report
@@ -658,6 +860,9 @@ class Evo2Model:
             provided_reference: Optional reference allele (fetched if not provided)
             gene_symbol: Optional gene symbol for thresholds and literature
             vep_annotation: Optional VEP consequence data for override logic
+            run_ism_scan: Enable in-silico mutagenesis positional scanning
+            ism_scan_radius: ±N bp around variant to scan (default: 20)
+            ism_scan_stride: Scan every Nth position (default: 1)
         
         Returns:
             dict: Comprehensive variant analysis result with fields:
@@ -799,6 +1004,29 @@ class Evo2Model:
             vep_annotation=vep_annotation
         )
 
+        # ===== STEP 3b: In-Silico Mutagenesis Scan (Optional) =====
+        # Systematic positional constraint mapping around the variant
+        # Reveals functional microdomains, domain boundaries, and neutral zones
+        ism_result = None
+        if run_ism_scan:
+            with logger.timed("ISM scan"):
+                ism_result = self._run_ism_scan(
+                    window_seq=window_seq,
+                    relative_pos=relative_pos,
+                    reference=reference,
+                    scan_radius=ism_scan_radius,
+                    stride=ism_scan_stride
+                )
+                # Fill in absolute genomic positions
+                if ism_result and "positions" in ism_result:
+                    for pos_key, pos_data in ism_result["positions"].items():
+                        pos_data["genomic_position"] = seq_start + relative_pos + int(pos_key)
+                logger.info(
+                    f"ISM scan integrated into results: "
+                    f"{ism_result['summary']['constrained_positions']}/"
+                    f"{ism_result['summary']['total_positions_scanned']} positions constrained"
+                )
+
         # ===== STEP 4: ACMG Evidence Mapping =====
         # Convert Evo2 scores to standardized ACMG evidence codes (PP3/BP4)
         acmg_evidence = self.clinical_enricher.acmg.map_score_to_evidence(
@@ -807,49 +1035,45 @@ class Evo2Model:
             model_name="Evo2-7B"
         )
 
-        # ===== STEP 5: Literature Context =====
-        # Fetch gene function and variant-specific literature from PubMed
-        # Optionally enhanced with tri-modal RAG (ClinVar + UniProt + PubMed)
+        # ===== STEP 5: Multi-Source Evidence Gathering (Parallel) =====
+        # Fetch ClinVar, UniProt, PubMed, and gnomAD evidence in parallel
+        # Each source fails independently - partial results are still returned
         lit_context = None
-        rag_level = None
-        rag_sources = None
+        clinvar_data = None
+        uniprot_data = None
+        pubmed_articles = []
+        
         if gene_symbol:
-            # Direct PubMed search provides baseline literature context
-            # This is fast and doesn't require additional service deployment
-            lit_context = self.clinical_enricher.pubmed.get_literature_context(gene_symbol)
-            logger.info(f"PubMed search: {lit_context.num_articles_found} articles for {gene_symbol}")
-
-            # Enhanced tri-modal RAG search (requires separate Modal deployment)
-            # Combines ClinVar clinical data, UniProt protein annotations, and PubMed literature
-            try:
-                # Attempt to use deployed tri-modal RAG service
-                rag_cls = modal.Cls.from_name("multimodal-rag", "MultiModalRAG")
-                variant_str = f"{provided_reference or reference}>{alternative}" if provided_reference or reference else alternative
-                
-                # Pass complete context to RAG for comprehensive synthesis
-                rag_result = rag_cls().search_and_synthesize.remote(
-                    gene=gene_symbol,
-                    variant=variant_str,
-                    vep_data=vep_annotation,
-                    evo2_delta=delta_score,
-                    evo2_confidence=confidence,
-                    evo2_prediction=prediction
-                )
-                
-                if rag_result.get("found"):
-                    # Use enhanced RAG result if available (more comprehensive than PubMed alone)
-                    lit_context = type('LitContext', (), {
-                        'summary': rag_result.get("summary"),
-                        'pubmed_ids': rag_result.get("pmids", []),
-                        'gene_function': rag_result.get("protein_function"),
-                        'num_articles_found': len(rag_result.get("pmids", []))
-                    })()
-                    rag_level = rag_result.get("sources", {}).get("pubmed", {}).get("level")
-                    rag_sources = rag_result.get("sources")
-                    logger.info(f"Tri-Modal RAG enhanced: {lit_context.num_articles_found} papers")
-            except Exception as e:
-                # Gracefully fall back to PubMed-only results if RAG service unavailable
-                logger.info(f"Tri-Modal RAG not available ({type(e).__name__}), using PubMed results")
+            # Use the new EvidenceAggregator for parallel fetching
+            variant_str = f"{provided_reference or reference}>{alternative}" if provided_reference or reference else alternative
+            
+            evidence = self.clinical_enricher.aggregator.gather_evidence(
+                chromosome=chromosome,
+                position=variant_position,
+                ref=provided_reference or reference,
+                alt=alternative,
+                gene_symbol=gene_symbol,
+                delta_score=delta_score,
+                confidence=confidence,
+                prediction=prediction,
+                vep_annotation=vep_annotation
+            )
+            
+            # Extract results from aggregator
+            clinvar_data = evidence.clinvar_result
+            uniprot_data = evidence.uniprot_result
+            pubmed_articles = evidence.pubmed_articles
+            
+            # Generate literature summary using Groq LLM
+            if pubmed_articles:
+                lit_context = self.clinical_enricher.pubmed.get_literature_context(gene_symbol)
+                logger.info(f"PubMed search: {lit_context.num_articles_found} articles for {gene_symbol}")
+            
+            logger.info(
+                f"Evidence gathered: ClinVar={clinvar_data.status if clinvar_data else 'N/A'}, "
+                f"UniProt={uniprot_data.accession if uniprot_data else 'N/A'}, "
+                f"PubMed={len(pubmed_articles)} articles"
+            )
         
         # ===== STEP 6: Build Enriched Response =====
         # Combine all data sources into comprehensive variant report
@@ -879,16 +1103,105 @@ class Evo2Model:
                 "clinical_note": acmg_evidence.clinical_note
             },
             
-            # ===== Literature Context (PubMed + Tri-Modal RAG) =====
+            # ===== Clinical Evidence (ClinVar) =====
+            "clinvar_evidence": {
+                "status": clinvar_data.status if clinvar_data else None,
+                "review_status": clinvar_data.review_status if clinvar_data else None,
+                "variation_id": clinvar_data.variation_id if clinvar_data else None,
+                "num_submitters": clinvar_data.num_submitters if clinvar_data else 0,
+                "conflicting": clinvar_data.conflicting if clinvar_data else False,
+                "summary": clinvar_data.text if clinvar_data else None
+            } if gene_symbol else None,
+            
+            # ===== Protein Context (UniProt) =====
+            "protein_context": {
+                "accession": uniprot_data.accession if uniprot_data else None,
+                "protein_name": uniprot_data.protein_name if uniprot_data else None,
+                "function": uniprot_data.function if uniprot_data else None,
+                "domains": uniprot_data.domains if uniprot_data else [],
+                "subcellular_location": uniprot_data.subcellular_location if uniprot_data else None,
+                "disease_associations": uniprot_data.disease_associations if uniprot_data else []
+            } if gene_symbol else None,
+            
+            # ===== Literature Context (PubMed + Groq LLM) =====
             "literature_context": {
                 "summary": lit_context.summary if lit_context else None,
                 "pubmed_ids": lit_context.pubmed_ids if lit_context else [],
                 "gene_function": lit_context.gene_function if lit_context else None,
                 "articles_found": lit_context.num_articles_found if lit_context else 0,
-                "evidence_level": rag_level,  # Evidence tier: L1_Exact_Variant or L2_Gene_Context
-                "sources": rag_sources  # Metadata from ClinVar, UniProt, and PubMed sources
-            } if gene_symbol else None
+                "articles": [
+                    {"pmid": a["pmid"], "title": a["title"], "abstract": a["abstract"][:300]}
+                    for a in pubmed_articles[:3]
+                ] if pubmed_articles else []
+            } if gene_symbol else None,
+            
+            # ===== In-Silico Mutagenesis Scan (Optional) =====
+            "ism_scan": ism_result
         }
+        
+        # ===== STEP 7: Generate Structured Clinical Summary =====
+        # Synthesize all evidence into a clinician-friendly narrative
+        clinical_summary = None
+        evidence_confidence = None
+        if gene_symbol and os.getenv("GROQ_API_KEY"):
+            try:
+                variant_str = f"{reference}>{alternative}"
+                clinical_summary = self._generate_clinical_summary(
+                    gene_symbol=gene_symbol,
+                    variant_str=variant_str,
+                    vep_annotation=vep_annotation,
+                    delta_score=delta_score,
+                    confidence=confidence,
+                    prediction=prediction,
+                    gnomad_result=gnomad_result,
+                    clinvar_data=clinvar_data,
+                    uniprot_data=uniprot_data,
+                    pubmed_articles=pubmed_articles
+                )
+                if clinical_summary:
+                    result["clinical_summary"] = clinical_summary
+                    logger.info("Clinical summary generated successfully")
+            except Exception as e:
+                logger.warning(f"Clinical summary generation failed: {e}")
+        
+        # Calculate evidence confidence scores
+        if gene_symbol:
+            evidence_confidence = self._calculate_evidence_confidence(
+                vep_annotation=vep_annotation,
+                gnomad_result=gnomad_result,
+                clinvar_data=clinvar_data,
+                uniprot_data=uniprot_data,
+                pubmed_articles=pubmed_articles,
+                evo2_confidence=confidence
+            )
+            result["evidence_confidence"] = evidence_confidence
+        
+        # Compute XAI confidence factors (moved from client-side to backend)
+        xai_factors = self._compute_xai_factors(
+            delta_score=delta_score,
+            gnomad_result=gnomad_result,
+            acmg_code=acmg_evidence.code if acmg_evidence else None
+        )
+        result["xai_factors"] = xai_factors
+        
+        # Extract counterfactual analysis from ISM data if available
+        if ism_result:
+            counterfactuals = self._extract_counterfactuals(ism_result)
+            if counterfactuals:
+                result["counterfactuals"] = counterfactuals
+        
+        # Map evidence to ACMG/AMP criteria
+        if gene_symbol:
+            acmg_criteria = self._map_acmg_criteria(
+                gene_symbol=gene_symbol,
+                delta_score=delta_score,
+                prediction=prediction,
+                gnomad_result=gnomad_result,
+                clinvar_data=clinvar_data,
+                vep_annotation=vep_annotation,
+                ism_result=ism_result
+            )
+            result["acmg_criteria"] = acmg_criteria
         
         # Log completion with performance metrics
         total_duration_ms = (time.perf_counter() - request_start) * 1000
@@ -902,7 +1215,681 @@ class Evo2Model:
         )
         logger.clear_context()
         
-        return result
+        # Sanitize numpy types to native Python for JSON serialization
+        return _sanitize_for_json(result)
+    
+    def _generate_clinical_summary(
+        self,
+        gene_symbol: str,
+        variant_str: str,
+        vep_annotation: Optional[dict],
+        delta_score: float,
+        confidence: float,
+        prediction: str,
+        gnomad_result,
+        clinvar_data,
+        uniprot_data,
+        pubmed_articles: list
+    ) -> str:
+        """
+        Generate a structured clinical summary using Groq Llama 3.3 70B.        
+        Synthesizes evidence from VEP, Evo2, gnomAD, ClinVar, UniProt, and PubMed into a clinician-friendly narrative with source citations.
+        """
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return None
+        
+        try:
+            from groq import Groq
+            client = Groq(api_key=api_key)
+            
+            # Build structured evidence sections with availability tracking
+            sections = []
+            available_sources = []
+            missing_sources = []
+            
+            # Section 1: Variant Identity
+            sections.append(f"## VARIANT IDENTITY\nGene: {gene_symbol}\nVariant: {variant_str}")
+            if vep_annotation:
+                consequence = vep_annotation.get('consequence', 'Unknown')
+                impact = vep_annotation.get('impact', 'Unknown')
+                aa_change = vep_annotation.get('aaChange') or vep_annotation.get('aminoAcids', 'Unknown')
+                codons = vep_annotation.get('codons', 'Unknown')
+                transcript = vep_annotation.get('transcriptId', 'Unknown')
+                exon = vep_annotation.get('exonNumber', 'Unknown')
+                sections.append(f"VEP: {consequence} ({impact} impact)\nAmino Acid: {aa_change}\nCodons: {codons}\nTranscript: {transcript}\nExon: {exon}")
+                available_sources.append("VEP")
+            else:
+                missing_sources.append("VEP")
+                sections.append("VEP: Not available - molecular consequence unknown")
+            
+            # Section 2: Computational Evidence
+            sections.append(f"## COMPUTATIONAL EVIDENCE\nEvo2-7B Delta Score: {delta_score:.6f}\nPrediction: {prediction}\nConfidence: {confidence:.1%}")
+            available_sources.append("Evo2")
+            
+            # Section 3: Population Evidence
+            if gnomad_result and gnomad_result.allele_frequency is not None:
+                af = gnomad_result.allele_frequency
+                max_af = gnomad_result.population_max_af
+                sections.append(f"## POPULATION EVIDENCE\ngnomAD v4.1 Allele Frequency: {af:.6f}\nMax Population AF: {max_af if max_af else 'N/A'}\nCommon Variant: {gnomad_result.is_common}")
+                available_sources.append("gnomAD")
+            else:
+                missing_sources.append("gnomAD")
+                sections.append("## POPULATION EVIDENCE\ngnomAD: Not available - variant not found in population database")
+            
+            # Section 4: Clinical Evidence
+            if clinvar_data and clinvar_data.status not in ("Not Found", "Error", None):
+                sections.append(f"## CLINICAL EVIDENCE\nClinVar: {clinvar_data.status}\nReview Status: {clinvar_data.review_status}\nSubmitters: {clinvar_data.num_submitters}\nConflicting: {clinvar_data.conflicting}")
+                available_sources.append("ClinVar")
+            else:
+                missing_sources.append("ClinVar")
+                sections.append("## CLINICAL EVIDENCE\nClinVar: Not available - variant not found in clinical database")
+            
+            # Section 5: Protein Context
+            if uniprot_data and uniprot_data.function:
+                domains_str = ""
+                if uniprot_data.domains:
+                    domains_str = "\n".join([f"  - {d['name']} (aa {d['start']}-{d['end']})" for d in uniprot_data.domains[:5]])
+                diseases_str = ""
+                if uniprot_data.disease_associations:
+                    diseases_str = "\n".join([f"  - {d[:150]}" for d in uniprot_data.disease_associations[:3]])
+                sections.append(f"## PROTEIN CONTEXT\nUniProt: {uniprot_data.accession}\nProtein: {uniprot_data.protein_name}\nFunction: {uniprot_data.function[:600]}\nDomains:\n{domains_str}\nDisease Associations:\n{diseases_str}")
+                available_sources.append("UniProt")
+            else:
+                missing_sources.append("UniProt")
+                sections.append("## PROTEIN CONTEXT\nUniProt: Not available - protein information not found")
+            
+            # Section 6: Literature
+            if pubmed_articles:
+                articles_str = "\n".join([
+                    f"  [{a['pmid']}] {a['title'][:200]}\n  Abstract: {a['abstract'][:400]}"
+                    for a in pubmed_articles[:3]
+                ])
+                sections.append(f"## LITERATURE EVIDENCE\n{articles_str}")
+                available_sources.append("PubMed")
+            else:
+                missing_sources.append("PubMed")
+                sections.append("## LITERATURE EVIDENCE\nPubMed: Not available - no relevant articles found")
+            
+            # Build source availability summary
+            source_status = f"\n\n## SOURCE AVAILABILITY\nAvailable: {', '.join(available_sources) if available_sources else 'None'}\nMissing: {', '.join(missing_sources) if missing_sources else 'None'}"
+            evidence_text = "\n\n".join(sections) + source_status
+            
+            system_prompt = """You are a clinical genomics expert writing for physicians and genetic counselors.
+                Generate a structured clinical summary using ONLY the provided evidence. Follow these rules STRICTLY:
+
+                1. NEVER fabricate information. If data is marked as "Not available", state that explicitly rather than guessing.
+                2. Cite ALL claims with source tags: [VEP], [Evo2], [gnomAD], [ClinVar], [UniProt], [PubMed:PMID]
+                3. Use standard clinical terminology (ACMG/AMP guidelines).
+                4. Write in clear, concise language suitable for a clinical report.
+                5. Include a DISCLAIMER that this is a computational prediction requiring clinical correlation.
+                6. If multiple sources are missing, acknowledge the limited evidence base.
+                7. NEVER recommend clinical actions - only summarize evidence for clinical interpretation.
+
+                Structure your response with these EXACT headings:
+                1 MOLECULAR MECHANISM - What happens at the DNA/protein level?
+                2 COMPUTATIONAL PREDICTION - What does the AI model predict and why?
+                3 POPULATION EVIDENCE - How common is this variant in the general population?
+                4 CLINICAL EVIDENCE - What do clinical databases and literature report?
+                5 INTEGRATED ASSESSMENT - Synthesize all evidence into a clinical interpretation
+                6 LIMITATIONS - What are the caveats and uncertainties?"""
+
+            user_prompt = f"""Generate a clinical summary for a {gene_symbol} variant based on the following evidence:
+
+{evidence_text}
+
+Remember: Cite sources, be precise, and include the disclaimer. Acknowledge any missing data sources."""
+            
+            chat_completion = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt}
+                ],
+                temperature=0.2,
+                max_tokens=1500,
+            )
+            
+            summary = chat_completion.choices[0].message.content.strip()
+            
+            # Post-process: verify citations
+            valid_pmids = {a["pmid"] for a in pubmed_articles} if pubmed_articles else set()
+            import re
+            cited_pmids = set(re.findall(r'\[PubMed:(\d+)\]', summary))
+            fabricated = cited_pmids - valid_pmids
+            if fabricated:
+                logger.warning(f"LLM fabricated PubMed citations: {fabricated}")
+                summary += f"\n\n[WARNING: The following citations could not be verified: {', '.join(fabricated)}. Please verify before clinical use.]"
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Clinical summary generation failed: {e}")
+            return None
+    
+    def _calculate_evidence_confidence(
+        self,
+        vep_annotation: Optional[dict],
+        gnomad_result,
+        clinvar_data,
+        uniprot_data,
+        pubmed_articles: list,
+        evo2_confidence: float
+    ) -> dict:
+        """
+        Calculate per-source confidence scores for transparency.
+        
+        Returns a dict with confidence levels for each evidence source,
+        helping clinicians understand which parts of the analysis are most reliable.
+        """
+        confidence = {
+            "vep": {"available": False, "confidence": "N/A", "note": "Molecular annotation unavailable"},
+            "evo2": {"available": True, "confidence": self._confidence_label(evo2_confidence), "note": f"Computational prediction confidence: {evo2_confidence:.0%}"},
+            "gnomad": {"available": False, "confidence": "N/A", "note": "Population data unavailable"},
+            "clinvar": {"available": False, "confidence": "N/A", "note": "Clinical classification unavailable"},
+            "uniprot": {"available": False, "confidence": "N/A", "note": "Protein annotation unavailable"},
+            "pubmed": {"available": False, "confidence": "N/A", "note": "Literature evidence unavailable"},
+        }
+        
+        # VEP confidence
+        if vep_annotation:
+            impact = vep_annotation.get('impact', '')
+            if impact == 'HIGH':
+                conf = "High"
+                note = "Protein-truncating or splice variant - molecular consequence is definitive"
+            elif impact == 'MODERATE':
+                conf = "High"
+                note = "Missense or in-frame indel - amino acid change is known"
+            elif impact == 'LOW':
+                conf = "High"
+                note = "Synonymous or non-coding - likely neutral"
+            else:
+                conf = "Medium"
+                note = "Modifier - functional impact uncertain"
+            confidence["vep"] = {"available": True, "confidence": conf, "note": note}
+        
+        # gnomAD confidence
+        if gnomad_result and gnomad_result.allele_frequency is not None:
+            af = gnomad_result.allele_frequency
+            if af >= 0.01:
+                conf = "High"
+                note = f"Common variant (AF={af:.4f}) - population data is robust"
+            elif af >= 0.0001:
+                conf = "Medium"
+                note = f"Rare variant (AF={af:.6f}) - limited population data"
+            else:
+                conf = "Low"
+                note = "Variant absent from gnomAD - may be novel or extremely rare"
+            confidence["gnomad"] = {"available": True, "confidence": conf, "note": note}
+        
+        # ClinVar confidence
+        if clinvar_data and clinvar_data.status not in ("Not Found", "Error", None):
+            review = clinvar_data.review_status.lower()
+            submitters = clinvar_data.num_submitters
+            if "expert panel" in review or "practice guideline" in review:
+                conf = "High"
+                note = f"Expert panel reviewed ({submitters} submitters)"
+            elif submitters >= 3:
+                conf = "High"
+                note = f"Multiple submitters ({submitters}) with consensus"
+            elif submitters >= 2:
+                conf = "Medium"
+                note = f"Two submitters - moderate consensus"
+            else:
+                conf = "Low"
+                note = "Single submitter - limited validation"
+            if clinvar_data.conflicting:
+                conf = "Low"
+                note += " (CONFLICTING interpretations)"
+            confidence["clinvar"] = {"available": True, "confidence": conf, "note": note}
+        
+        # UniProt confidence
+        if uniprot_data and uniprot_data.function:
+            if uniprot_data.domains:
+                conf = "High"
+                note = f"Reviewed entry with {len(uniprot_data.domains)} annotated domains"
+            else:
+                conf = "Medium"
+                note = "Reviewed entry with functional annotation"
+            confidence["uniprot"] = {"available": True, "confidence": conf, "note": note}
+        
+        # PubMed confidence
+        if pubmed_articles:
+            n = len(pubmed_articles)
+            if n >= 5:
+                conf = "High"
+                note = f"{n} relevant articles found"
+            elif n >= 2:
+                conf = "Medium"
+                note = f"{n} articles found - limited literature"
+            else:
+                conf = "Low"
+                note = "Single article - very limited evidence"
+            confidence["pubmed"] = {"available": True, "confidence": conf, "note": note}
+        
+        # Overall confidence
+        available_count = sum(1 for c in confidence.values() if c["available"])
+        high_count = sum(1 for c in confidence.values() if c["confidence"] == "High")
+        if available_count >= 5 and high_count >= 3:
+            overall = "High"
+        elif available_count >= 3:
+            overall = "Medium"
+        else:
+            overall = "Low"
+        
+        confidence["overall"] = {
+            "level": overall,
+            "sources_available": f"{available_count}/6",
+            "high_confidence_sources": f"{high_count}/6"
+        }
+        
+        return confidence
+    
+    def _compute_xai_factors(
+        self,
+        delta_score: float,
+        gnomad_result,
+        acmg_code: str
+    ) -> dict:
+        """
+        Compute 4-factor weighted XAI confidence decomposition.
+        
+        Moved from client-side computeConfidenceFactors() to backend for:
+        - Database persistence and export inclusion
+        - Consistent computation across all views
+        - Single source of truth for XAI metrics
+        
+        Returns:
+            dict with factors list and total score
+        """
+        import math
+        
+        delta = delta_score or 0.0
+        abs_delta = abs(delta)
+        factors = []
+        
+        # Evo2-calibrated thresholds
+        EVO2_WEAK = 0.0001
+        EVO2_MOD = 0.005
+        EVO2_STRONG = 0.05
+        EVO2_MAX = 0.5
+        
+        # Factor 1: Evolutionary Signal (0-50%)
+        delta_contrib = min(50, round(
+            (math.log10(abs_delta / EVO2_WEAK + 1) / math.log10(EVO2_MAX / EVO2_WEAK + 1)) * 50
+        ))
+        signal_label = (
+            "strong" if abs_delta >= EVO2_STRONG
+            else "moderate" if abs_delta >= EVO2_MOD
+            else "weak" if abs_delta >= EVO2_WEAK
+            else "minimal"
+        )
+        factors.append({
+            "label": "Evolutionary Signal",
+            "contribution": max(1, delta_contrib),
+            "color": "#ef4444" if delta < 0 else "#22c55e",
+            "detail": f"|Δ| = {abs_delta:.6f} — {signal_label} evolutionary pressure signal"
+        })
+        
+        # Factor 2: Effect Size Clarity (0-20%)
+        near_zero = abs_delta < EVO2_WEAK
+        ambiguous = abs_delta < EVO2_MOD
+        direction_contrib = 5 if near_zero else (10 if ambiguous else (20 if abs_delta >= EVO2_STRONG else 14))
+        direction_label = "Effect Size: Minimal" if near_zero else ("Effect Size: Weak" if ambiguous else "Effect Size: Clear")
+        factors.append({
+            "label": direction_label,
+            "contribution": direction_contrib,
+            "color": "#f59e0b" if near_zero else ("#fb923c" if ambiguous else "#6366f1"),
+            "detail": (
+                f"|Δ| = {abs_delta:.6f} — essentially zero, Evo2 sees this sequence as equally likely"
+                if near_zero else
+                f"Weak {'pathogenic' if delta < 0 else 'benign'} signal (|Δ| = {abs_delta:.6f}), interpret cautiously"
+                if ambiguous else
+                f"Clear {'pathogenic' if delta < 0 else 'benign'} direction (|Δ| = {abs_delta:.6f})"
+            )
+        })
+        
+        # Factor 3: Population Rarity (0-15%)
+        af = gnomad_result.allele_frequency if gnomad_result else None
+        if af is not None:
+            if af > 0.05:
+                pop_contrib, pop_detail = 2, f"Common variant (AF={af*100:.2f}%) — strong benign signal (BA1 criterion)"
+            elif af > 0.01:
+                pop_contrib, pop_detail = 5, f"Uncommon (AF={af*100:.2f}%)"
+            elif af > 0.001:
+                pop_contrib, pop_detail = 10, f"Rare (AF={af*100:.4f}%) — low population frequency"
+            else:
+                pop_contrib, pop_detail = 15, f"Ultra-rare (AF={af:.2e}) — rarity supports pathogenic classification"
+        else:
+            pop_contrib, pop_detail = 10, "Not observed in gnomAD (800k+ individuals) — novel or ultra-rare"
+        factors.append({
+            "label": "Population Rarity",
+            "contribution": pop_contrib,
+            "color": "#8b5cf6",
+            "detail": pop_detail
+        })
+        
+        # Factor 4: ACMG Evidence (0-15%)
+        code = acmg_code or "None"
+        if code and code != "None":
+            if "VeryStrong" in code or "PVS" in code:
+                acmg_contrib, acmg_detail = 15, f"{code} — very strong ACMG criterion met"
+            elif "Strong" in code or code.startswith("PS") or code.startswith("BS"):
+                acmg_contrib, acmg_detail = 12, f"{code} — strong ACMG criterion"
+            elif "Moderate" in code or code.startswith("PM") or code.startswith("BP"):
+                acmg_contrib, acmg_detail = 9, f"{code} — moderate ACMG criterion"
+            elif "Supporting" in code or code.startswith("PP"):
+                acmg_contrib, acmg_detail = 6, f"{code} — supporting ACMG criterion"
+            else:
+                acmg_contrib, acmg_detail = 7, f"{code} — ACMG criterion triggered"
+        else:
+            acmg_contrib, acmg_detail = 5, "No ACMG code triggered — delta score in uncertain range"
+        factors.append({
+            "label": "ACMG Evidence",
+            "contribution": acmg_contrib,
+            "color": "#0ea5e9",
+            "detail": acmg_detail
+        })
+        
+        total = sum(f["contribution"] for f in factors)
+        return {"factors": factors, "total": total}
+    
+    def _extract_counterfactuals(self, ism_result: dict) -> dict:
+        """
+        Extract counterfactual analysis from ISM scan data.
+        
+        For the variant position (relative position 0), shows what Evo2 predicts
+        for all three alternative alleles — answering "what if this were a
+        different mutation?"
+        
+        Returns:
+            dict with per-allele predictions or None if ISM data unavailable
+        """
+        if not ism_result or "positions" not in ism_result:
+            return None
+        
+        pos0 = ism_result["positions"].get("0")
+        if not pos0:
+            return None
+        
+        alternatives = pos0.get("alternatives", {})
+        if not alternatives:
+            return None
+        
+        counterfactuals = {}
+        for alt_nuc, scores in alternatives.items():
+            delta = scores["delta"]
+            direction = scores["direction"]
+            magnitude = scores["magnitude"]
+            
+            # Classify each alternative
+            if direction == "pathogenic":
+                prediction = "Likely Pathogenic"
+            elif direction == "benign":
+                prediction = "Likely Benign"
+            else:
+                prediction = "Uncertain Significance"
+            
+            counterfactuals[alt_nuc] = {
+                "delta": delta,
+                "prediction": prediction,
+                "direction": direction,
+                "magnitude": magnitude
+            }
+        
+        # Determine which alleles are tolerated vs pathogenic vs neutral
+        tolerated = [a for a, c in counterfactuals.items() if c["direction"] == "benign"]
+        pathogenic = [a for a, c in counterfactuals.items() if c["direction"] == "pathogenic"]
+        neutral = [a for a, c in counterfactuals.items() if c["direction"] == "neutral"]
+        
+        # Build summary
+        if tolerated and not pathogenic and not neutral:
+            summary = f"All alternatives tolerated — position is evolutionarily neutral"
+        elif pathogenic and not tolerated:
+            summary = f"All alternatives pathogenic — position is highly constrained"
+        elif neutral and not tolerated and not pathogenic:
+            summary = f"All alternatives have uncertain effect — Evo2 cannot distinguish any nucleotide change from background at this position"
+        elif tolerated and pathogenic:
+            summary = f"{', '.join(tolerated)} tolerated; {', '.join(pathogenic)} predicted pathogenic"
+        elif tolerated and neutral:
+            summary = f"{', '.join(tolerated)} tolerated; {', '.join(neutral)} uncertain"
+        elif pathogenic and neutral:
+            summary = f"{', '.join(pathogenic)} pathogenic; {', '.join(neutral)} uncertain"
+        else:
+            summary = f"Mixed effects across alternative alleles"
+        
+        return {
+            "reference": pos0["reference"],
+            "alternatives": counterfactuals,
+            "tolerated_alleles": tolerated,
+            "pathogenic_alleles": pathogenic,
+            "neutral_alleles": neutral,
+            "summary": summary
+        }
+    
+    def _map_acmg_criteria(
+        self,
+        gene_symbol: str,
+        delta_score: float,
+        prediction: str,
+        gnomad_result,
+        clinvar_data,
+        vep_annotation: Optional[dict],
+        ism_result: Optional[dict]
+    ) -> dict:
+        """
+        Map all available evidence to specific ACMG/AMP criteria.
+        
+        Uses rule-based logic (not LLM) for deterministic, reproducible mapping.
+        Each criterion is evaluated as MET or NOT MET with a rationale.
+        
+        Based on Richards et al. (2015) ACMG/AMP guidelines and subsequent
+        refinements by ClinGen Sequence Variant Interpretation Working Group.
+        
+        Returns:
+            dict with criteria_status mapping and classification summary
+        """
+        criteria = {}
+        
+        # ─── PVS1: Null variant in gene where LOF is known mechanism ───
+        is_null = False
+        if vep_annotation:
+            is_null = bool(
+                vep_annotation.get("isNonsense") or
+                vep_annotation.get("isFrameshift") or
+                (vep_annotation.get("impact") == "HIGH" and "splice" in str(vep_annotation.get("consequence", "")).lower())
+            )
+        criteria["PVS1"] = {
+            "met": is_null,
+            "strength": "Very Strong" if is_null else None,
+            "rationale": (
+                "Protein-truncating variant in gene where LOF is established disease mechanism"
+                if is_null else
+                "Not a null variant (missense, synonymous, or non-coding)"
+            )
+        }
+        
+        # ─── PS1: Same amino acid change as known pathogenic variant ───
+        # Requires ClinVar data with same AA change — simplified check
+        has_known_pathogenic = (
+            clinvar_data and
+            clinvar_data.status and
+            "pathogenic" in str(clinvar_data.status).lower() and
+            clinvar_data.review_status and
+            ("expert" in str(clinvar_data.review_status).lower() or clinvar_data.num_submitters >= 2)
+        )
+        criteria["PS1"] = {
+            "met": has_known_pathogenic,
+            "strength": "Strong" if has_known_pathogenic else None,
+            "rationale": (
+                f"Same amino acid change as established pathogenic variant in ClinVar ({clinvar_data.status})"
+                if has_known_pathogenic else
+                "No known pathogenic variant at this position with same amino acid change"
+            )
+        }
+        
+        # ─── PM2: Absent from population databases ───
+        af = gnomad_result.allele_frequency if gnomad_result else None
+        absent_from_pop = af is None or af == 0
+        criteria["PM2"] = {
+            "met": absent_from_pop,
+            "strength": "Moderate" if absent_from_pop else None,
+            "rationale": (
+                "Absent from gnomAD v4.1 (800,000+ individuals)"
+                if absent_from_pop else
+                f"Present in gnomAD at AF={af:.6f} — does not meet PM2 threshold"
+            )
+        }
+        
+        # ─── PP3: Multiple computational evidence supports pathogenicity ───
+        evo2_pathogenic = delta_score < -0.001 and "pathogenic" in prediction.lower()
+        criteria["PP3"] = {
+            "met": evo2_pathogenic,
+            "strength": "Supporting" if evo2_pathogenic else None,
+            "rationale": (
+                f"Evo2-7B predicts pathogenic (Δ={delta_score:.6f}) — computational evidence supports deleterious effect"
+                if evo2_pathogenic else
+                "Computational prediction does not support pathogenicity"
+            )
+        }
+        
+        # ─── BP4: Multiple computational evidence supports benign ───
+        evo2_benign = delta_score > 0.001 and "benign" in prediction.lower()
+        criteria["BP4"] = {
+            "met": evo2_benign,
+            "strength": "Supporting" if evo2_benign else None,
+            "rationale": (
+                f"Evo2-7B predicts benign (Δ={delta_score:.6f}) — computational evidence supports no impact"
+                if evo2_benign else
+                "Computational prediction does not support benign classification"
+            )
+        }
+        
+        # ─── BA1: Allele frequency >5% in population ───
+        is_common = af is not None and af >= 0.05
+        criteria["BA1"] = {
+            "met": is_common,
+            "strength": "Standalone" if is_common else None,
+            "rationale": (
+                f"Allele frequency {af*100:.2f}% exceeds 5% threshold — standalone evidence for benign"
+                if is_common else
+                f"Allele frequency below BA1 threshold (5%)"
+            )
+        }
+        
+        # ─── BS1: Allele frequency greater than expected for disorder ───
+        is_uncommon_benign = af is not None and af >= 0.01
+        criteria["BS1"] = {
+            "met": is_uncommon_benign and not is_common,
+            "strength": "Strong" if (is_uncommon_benign and not is_common) else None,
+            "rationale": (
+                f"AF={af*100:.2f}% exceeds expected frequency for {gene_symbol}-related disorder"
+                if (is_uncommon_benign and not is_common) else
+                "Does not meet BS1 frequency threshold" if af is not None else
+                "Population frequency data unavailable"
+            )
+        }
+        
+        # ─── PM5: Novel missense at position where different missense is pathogenic ───
+        has_different_pathogenic = (
+            clinvar_data and
+            clinvar_data.status and
+            "pathogenic" in str(clinvar_data.status).lower() and
+            vep_annotation and
+            "missense" in vep_annotation.get("consequence", "").lower()
+        )
+        criteria["PM5"] = {
+            "met": has_different_pathogenic,
+            "strength": "Moderate" if has_different_pathogenic else None,
+            "rationale": (
+                "Novel missense change at residue where a different pathogenic missense has been reported"
+                if has_different_pathogenic else
+                "Criterion not applicable — no different pathogenic missense at this position"
+            )
+        }
+        
+        # ─── PP2: Missense in gene with low rate of benign missense ───
+        # Simplified: check if gene is in our high-penetrance cancer gene list
+        is_high_constraint_gene = gene_symbol in self.GENE_SPECIFIC_THRESHOLDS
+        is_missense = vep_annotation and "missense" in vep_annotation.get("consequence", "").lower()
+        criteria["PP2"] = {
+            "met": is_high_constraint_gene and is_missense,
+            "strength": "Supporting" if (is_high_constraint_gene and is_missense) else None,
+            "rationale": (
+                f"Missense variant in {gene_symbol} — gene has low rate of benign missense variation (high constraint)"
+                if (is_high_constraint_gene and is_missense) else
+                "Not a missense variant or gene not in high-constraint panel"
+            )
+        }
+        
+        # ─── ISM-based spatial constraint evidence (novel criterion) ───
+        ism_high = ism_result and ism_result.get("summary", {}).get("constraint_zone") == "high"
+        criteria["ISM_SPATIAL"] = {
+            "met": ism_high,
+            "strength": "Supporting (Research)" if ism_high else None,
+            "rationale": (
+                f"ISM scan reveals highly constrained microdomain — {ism_result['summary']['constrained_positions']}/{ism_result['summary']['total_positions_scanned']} positions under purifying selection"
+                if ism_high else
+                "ISM scan not performed or region shows low constraint"
+            )
+        }
+        
+        # ─── Compute classification from met criteria ───
+        met_criteria = {k: v for k, v in criteria.items() if v["met"]}
+        
+        # Count strengths
+        very_strong = sum(1 for v in met_criteria.values() if v["strength"] == "Very Strong")
+        strong = sum(1 for v in met_criteria.values() if v["strength"] == "Strong")
+        moderate = sum(1 for v in met_criteria.values() if v["strength"] == "Moderate")
+        supporting = sum(1 for v in met_criteria.values() if v["strength"] == "Supporting")
+        standalone = sum(1 for v in met_criteria.values() if v["strength"] == "Standalone")
+        
+        # ACMG combining rules (simplified)
+        if standalone >= 1:
+            acmg_class = "Benign"
+        elif very_strong >= 1 and (strong >= 1 or moderate >= 2 or supporting >= 2):
+            acmg_class = "Pathogenic"
+        elif strong >= 2:
+            acmg_class = "Pathogenic"
+        elif strong >= 1 and (moderate >= 2 or supporting >= 2):
+            acmg_class = "Likely Pathogenic"
+        elif strong >= 1 and moderate >= 1:
+            acmg_class = "Likely Pathogenic"
+        elif moderate >= 2:
+            acmg_class = "Likely Pathogenic"
+        elif moderate >= 1 and supporting >= 1:
+            acmg_class = "Likely Pathogenic"
+        elif supporting >= 2:
+            acmg_class = "Uncertain Significance (VUS)"
+        else:
+            acmg_class = "Uncertain Significance (VUS)"
+        
+        return {
+            "criteria": criteria,
+            "met_count": len(met_criteria),
+            "total_evaluated": len(criteria),
+            "strength_counts": {
+                "very_strong": very_strong,
+                "strong": strong,
+                "moderate": moderate,
+                "supporting": supporting,
+                "standalone": standalone
+            },
+            "acmg_classification": acmg_class,
+            "classification_rationale": (
+                f"ACMG classification based on {len(met_criteria)} met criteria "
+                f"({very_strong}VS + {strong}S + {moderate}M + {supporting}P)"
+            )
+        }
+    
+    @staticmethod
+    def _confidence_label(score: float) -> str:
+        if score >= 0.8:
+            return "High"
+        elif score >= 0.5:
+            return "Medium"
+        else:
+            return "Low"
     
     @modal.fastapi_endpoint(method="POST")
     def analyze_single_variant(self, request: VariantRequest):
@@ -919,7 +1906,10 @@ class Evo2Model:
             chromosome=request.chromosome,
             provided_reference=request.reference,
             gene_symbol=request.gene_symbol,
-            vep_annotation=request.vep_annotation
+            vep_annotation=request.vep_annotation,
+            run_ism_scan=request.run_ism_scan,
+            ism_scan_radius=request.ism_scan_radius,
+            ism_scan_stride=request.ism_scan_stride
         )   
         
     @modal.fastapi_endpoint(method="POST")

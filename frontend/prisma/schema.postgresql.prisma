@@ -1,12 +1,18 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
+// ============================================================
+// DEPLOYMENT SCHEMA (PostgreSQL)
+// Copy this to schema.prisma when deploying to production.
+// For local dev, use the SQLite version in schema.prisma.
+// ============================================================
+
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -56,25 +62,14 @@ model AnalysisReport {
   clinvarClassification    String?
   variationType            String?
   clinvarId                String?
-  // Store enrichment data as JSON strings (SQLite compatible)
-  populationFrequency      String?
-  acmgEvidence             String?
-  literatureContext        String?
-  // Multi-modal RAG output
-  clinicalSummary        String?
-  evidenceConfidence     String?
-  // In-Silico Mutagenesis scan data
-  ismScanData            String?
-  // XAI confidence factors (backend-computed)
-  xaiFactors             String?
-  // Counterfactual analysis
-  counterfactuals        String?
-  // ACMG/AMP criteria mapping
-  acmgCriteria           String?
+  // Store enrichment data as JSON
+  populationFrequency      Json?
+  acmgEvidence             Json?
+  literatureContext        Json?
   // Analysis source: 'clinvar' or 'custom'
   analysisSource           String?
   // VEP annotation: consequence, aaChange, codons, etc.
-  vepAnnotation            String?
+  vepAnnotation            Json?
   createdAt                DateTime @default(now())
 
   user User @relation(fields: [clerkUserId], references: [clerkId])

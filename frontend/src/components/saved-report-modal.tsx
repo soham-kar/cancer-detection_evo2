@@ -9,6 +9,10 @@ import { GeneDomainMap } from "./gene-domain-map";
 import { VariantMechanismExplainer } from "./variant-mechanism-explainer";
 import type { VEPAnnotation } from "~/app/api/vep/route";
 import { FormattedClinicalSummary } from "./formatted-clinical-summary";
+import { ISMHeatmap } from "./ism-heatmap";
+import { CounterfactualCard } from "./counterfactual-card";
+import { ACMGCriteriaTable } from "./acmg-criteria-table";
+import type { ISMScanResult, XAIFactors, Counterfactuals, ACMGCriteriaResult } from "~/utils/genome-api";
 
 interface SavedReport {
     id: string;
@@ -44,7 +48,22 @@ interface SavedReport {
         gene_function: string | null;
         articles_found: number;
     };
+    // Multi-modal RAG output
+    clinicalSummary?: string | null;
+    evidenceConfidence?: {
+        vep: { available: boolean; confidence: string; note: string };
+        evo2: { available: boolean; confidence: string; note: string };
+        gnomad: { available: boolean; confidence: string; note: string };
+        clinvar: { available: boolean; confidence: string; note: string };
+        uniprot: { available: boolean; confidence: string; note: string };
+        pubmed: { available: boolean; confidence: string; note: string };
+        overall: { level: string; sources_available: string; high_confidence_sources: string };
+    } | null;
     vepAnnotation?: VEPAnnotation | null;
+    ismScanData?: ISMScanResult | null;
+    xaiFactors?: XAIFactors | null;
+    counterfactuals?: Counterfactuals | null;
+    acmgCriteria?: ACMGCriteriaResult | null;
     createdAt: string;
 }
 
@@ -166,7 +185,9 @@ export function SavedReportModal({
     const evo2Norm = report.prediction.toLowerCase().trim();
     const isDiscordant = clinvarNorm && clinvarNorm !== "unknown" && clinvarNorm !== evo2Norm;
 
-    const { factors, total: xaiTotal } = computeConfidenceFactors(report);
+    // Use backend-computed XAI factors if available, fall back to client-side
+    const factors = report.xaiFactors?.factors ?? computeConfidenceFactors(report).factors;
+    const xaiTotal = report.xaiFactors?.total ?? computeConfidenceFactors(report).total;
 
     // ─── Dynamic Evidence Summary ───────────────────────────────────────────
     const predictionDetail = delta < 0
@@ -607,7 +628,92 @@ Cross-references:
                                 )}
                             </div>
                         </div>
-                        {report.literatureContext?.summary && (
+                        {/* Multi-Modal RAG Clinical Summary */}
+                        {report.clinicalSummary && (
+                            <div className="mt-4 rounded-md border border-[#3c4f3d]/10 bg-white p-4">
+                                <div className="mb-3 flex items-center gap-2">
+                                    <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#de8246]/10">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-[#de8246]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6-4h6m-2 5.5c.5.3 1.2.2 1.4-.3.3-.5.2-1.2-.3-1.4-.5-.3-1.2-.2-1.4.3-.3.5-.2 1.2.3 1.4zM7 20h10v-2H7v2zM9 2h6v4H9V2z" />
+                                        </svg>
+                                    </span>
+                                    <div className="text-xs font-medium text-[#3c4f3d]">
+                                        Clinical Summary (Multi-Modal RAG)
+                                    </div>
+                                    <span className="ml-auto rounded bg-[#e9eeea] px-2 py-0.5 text-[10px] font-medium text-[#3c4f3d]/70">
+                                        Llama 3.3 70B
+                                    </span>
+                                </div>
+                                <FormattedClinicalSummary summary={report.clinicalSummary} />
+
+                                {/* Evidence Confidence Matrix */}
+                                {report.evidenceConfidence && (
+                                    <div className="mt-4 border-t border-[#3c4f3d]/10 pt-3">
+                                        <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[#3c4f3d]/50">
+                                            Evidence Confidence
+                                        </div>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {Object.entries(report.evidenceConfidence)
+                                                .filter(([key]) => key !== "overall")
+                                                .map(([key, val]) => {
+                                                    const v = val as { available: boolean; confidence: string; note: string };
+                                                    const color =
+                                                        v.confidence === "High"
+                                                            ? "bg-green-50 text-green-700 border-green-200"
+                                                            : v.confidence === "Medium"
+                                                                ? "bg-yellow-50 text-yellow-700 border-yellow-200"
+                                                                : v.confidence === "Low"
+                                                                    ? "bg-orange-50 text-orange-700 border-orange-200"
+                                                                    : "bg-gray-50 text-gray-500 border-gray-200";
+                                                    return (
+                                                        <div key={key} className={`rounded border px-2 py-1.5 ${color}`} title={v.note}>
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-[10px] font-semibold uppercase tracking-wide">{key}</span>
+                                                                <span className="text-[10px] font-medium">{v.confidence}</span>
+                                                            </div>
+                                                            <div className="mt-0.5 text-[9px] leading-tight opacity-80">
+                                                                {v.available ? "Available" : "Missing"}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })}
+                                        </div>
+                                        {report.evidenceConfidence.overall && (
+                                            <div className="mt-2 flex items-center gap-2">
+                                                <span className="text-[10px] text-[#3c4f3d]/60">Overall:</span>
+                                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                                    report.evidenceConfidence.overall.level === "High"
+                                                        ? "bg-green-100 text-green-800"
+                                                        : report.evidenceConfidence.overall.level === "Medium"
+                                                            ? "bg-yellow-100 text-yellow-800"
+                                                            : "bg-red-100 text-red-800"
+                                                }`}>
+                                                    {report.evidenceConfidence.overall.level}
+                                                </span>
+                                                <span className="text-[10px] text-[#3c4f3d]/50">
+                                                    {report.evidenceConfidence.overall.sources_available} sources, {report.evidenceConfidence.overall.high_confidence_sources} high-confidence
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+
+                                {/* Disclaimer */}
+                                <div className="mt-4 rounded bg-amber-50 border border-amber-200 p-3">
+                                    <div className="flex items-start gap-2">
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                        </svg>
+                                        <p className="text-[11px] leading-relaxed text-amber-800">
+                                            <strong>Computational Prediction Only:</strong> This summary is generated by an AI model (Llama 3.3 70B) using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation. Always verify critical findings with a board-certified clinical geneticist or molecular pathologist before making patient care decisions.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* Fallback: Legacy AI Clinical Summary */}
+                        {!report.clinicalSummary && report.literatureContext?.summary && (
                             <div className="mt-4 rounded-md bg-white p-3">
                                 <div className="text-xs font-medium text-[#3c4f3d]/70 mb-2">AI Clinical Summary</div>
                                 <FormattedClinicalSummary summary={report.literatureContext.summary} />
@@ -695,6 +801,36 @@ Cross-references:
                                         );
                                     })()}
                                 </div>
+
+                                {/* ── ISM Scan (In-Silico Mutagenesis) ── */}
+                                {report.ismScanData && (
+                                    <div className="mt-3">
+                                        <ISMHeatmap
+                                            data={report.ismScanData}
+                                            geneSymbol={report.geneSymbol}
+                                            variantPosition={report.position}
+                                            chromosome={report.chromosome}
+                                            compact
+                                        />
+                                    </div>
+                                )}
+
+                                {/* ── Counterfactual Analysis ── */}
+                                {report.counterfactuals && (
+                                    <div className="mt-3">
+                                        <CounterfactualCard
+                                            data={report.counterfactuals}
+                                            observedAlternative={report.alternative}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* ── ACMG/AMP Criteria Mapping ── */}
+                                {report.acmgCriteria && (
+                                    <div className="mt-3">
+                                        <ACMGCriteriaTable data={report.acmgCriteria} compact />
+                                    </div>
+                                )}
 
                                 {/* ── Evidence Consensus (moved up: executive summary before deep dive) ── */}
                                 {(() => {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
-// Modal RAG URL (web endpoint)
-const MODAL_RAG_URL = "https://karsoham529--multimodal-rag-search-and-synthesize-web.modal.run";
+// NEW: Use the real Evo2 analysis endpoint with multi-modal RAG
+const MODAL_API_URL = process.env.NEXT_PUBLIC_ANALYZE_SINGLE_VARIANT_BASE_URL;
 
 // Demo variants with pre-calculated scores (mock GPU results)
 const DEMO_VARIANTS: Record<string, {
@@ -55,30 +55,33 @@ export async function POST(request: NextRequest) {
 
         console.log("🚀 Guest Demo: Analyzing", demoVariant.gene, demoVariant.variant);
 
-        // Call the real MultiModalRAG (cheap CPU, real value)
-        let ragResult = null;
+        // NEW: Call the real Evo2 + Multi-Modal RAG endpoint
+        let analysisResult = null;
         try {
-            console.log("📡 Calling MultiModalRAG...");
-            const ragResponse = await fetch(MODAL_RAG_URL, {
+            console.log("📡 Calling Evo2 Analysis API...");
+            const apiResponse = await fetch(MODAL_API_URL!, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    gene: demoVariant.gene,
-                    variant: demoVariant.variant,
+                    variant_position: demoVariant.position,
+                    alternative: demoVariant.alternative,
+                    genome: "hg38",
+                    chromosome: demoVariant.chromosome,
+                    gene_symbol: demoVariant.gene,
                 }),
             });
 
-            if (ragResponse.ok) {
-                ragResult = await ragResponse.json();
-                console.log("✅ RAG Success:", ragResult.clinvar_status);
+            if (apiResponse.ok) {
+                analysisResult = await apiResponse.json();
+                console.log("✅ Analysis Success:", analysisResult.prediction);
             } else {
-                console.error("❌ RAG Error:", await ragResponse.text());
+                console.error("❌ Analysis Error:", await apiResponse.text());
             }
-        } catch (ragError) {
-            console.error("⚠️ RAG call failed:", ragError);
+        } catch (apiError) {
+            console.error("⚠️ Analysis call failed:", apiError);
         }
 
-        // Return combined result (mock GPU + real RAG)
+        // Return combined result (mock GPU + real analysis)
         return NextResponse.json({
             success: true,
             isDemo: true,
@@ -95,13 +98,20 @@ export async function POST(request: NextRequest) {
             delta_score: demoVariant.mockScore,
             classification_confidence: demoVariant.confidence,
             classification_source: "demo_mock",
-            // Real RAG results (the valuable part)
-            rag: ragResult ? {
-                summary: ragResult.summary,
-                clinvar_status: ragResult.clinvar_status,
-                pmids: ragResult.pmids || [],
-                protein_function: ragResult.protein_function,
-                sources: ragResult.sources,
+            // NEW: Real Multi-Modal RAG results
+            clinical_summary: analysisResult?.clinical_summary ?? null,
+            evidence_confidence: analysisResult?.evidence_confidence ?? null,
+            // Legacy RAG structure for backward compatibility with demo UI
+            rag: analysisResult ? {
+                summary: analysisResult.clinical_summary || analysisResult.literature_context?.summary || "",
+                clinvar_status: analysisResult.clinvar_evidence?.status || "Unknown",
+                pmids: analysisResult.literature_context?.pubmed_ids || [],
+                protein_function: analysisResult.protein_context?.function || "",
+                sources: {
+                    clinvar: { status: analysisResult.clinvar_evidence?.status || "Unknown", id: analysisResult.clinvar_evidence?.variation_id || "" },
+                    uniprot: { id: analysisResult.protein_context?.accession || "", has_function: !!analysisResult.protein_context?.function },
+                    pubmed: { count: analysisResult.literature_context?.articles_found || 0, level: analysisResult.evidence_confidence?.pubmed?.confidence || "N/A" },
+                },
             } : null,
         });
 

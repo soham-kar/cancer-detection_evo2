@@ -25,6 +25,9 @@ import { Button } from "./ui/button";
 import { match } from "node:assert";
 import { Zap, ShoppingCart } from "lucide-react";
 import { FormattedClinicalSummary } from "./formatted-clinical-summary";
+import { ISMHeatmap } from "./ism-heatmap";
+import { CounterfactualCard } from "./counterfactual-card";
+import { ACMGCriteriaTable } from "./acmg-criteria-table";
 
 export interface VariantAnalysisHandle {
   focusAlternativeInput: () => void;
@@ -66,6 +69,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
     const [isAnalyzing, setIsAnalyzing] = useState(false);
     const [variantError, setVariantError] = useState<string | null>(null);
     const [needsCredits, setNeedsCredits] = useState(false);
+    const [enableISM, setEnableISM] = useState(false);
     const alternativeInputRef = useRef<HTMLInputElement>(null);
 
     useImperativeHandle(ref, () => ({
@@ -113,6 +117,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
           genomeId,
           chromosome,
           geneSymbol: gene?.symbol,
+          runISMScan: enableISM,
         });
         setVariantResult(data);
         // Trigger history refresh
@@ -186,6 +191,18 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                 </span>
               </div>
             )}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={enableISM}
+                onChange={(e) => setEnableISM(e.target.checked)}
+                disabled={isAnalyzing}
+                className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+              />
+              <span className="text-[11px] text-slate-500">
+                ISM Scan <span className="text-slate-400">(±20bp constraint map)</span>
+              </span>
+            </label>
             <Button
               disabled={isAnalyzing || !variantPosition || !variantAlternative}
               className="h-8 cursor-pointer bg-[#3c4f3d] text-xs text-white hover:bg-[#3c4f3d]/90"
@@ -575,13 +592,137 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                   </div>
                 </div>
 
-                {/* AI Summary */}
-                {variantResult.literature_context?.summary && (
+                {/* Multi-Modal RAG Clinical Summary */}
+                {variantResult.clinical_summary && (
+                  <div className="mt-4 rounded-md border border-[#3c4f3d]/10 bg-white p-4">
+                    <div className="mb-3 flex items-center gap-2">
+                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#de8246]/10">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-[#de8246]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6-4h6m-2 5.5c.5.3 1.2.2 1.4-.3.3-.5.2-1.2-.3-1.4-.5-.3-1.2-.2-1.4.3-.3.5-.2 1.2.3 1.4zM7 20h10v-2H7v2zM9 2h6v4H9V2z" />
+                        </svg>
+                      </span>
+                      <div className="text-xs font-medium text-[#3c4f3d]">
+                        Clinical Summary (Multi-Modal RAG)
+                      </div>
+                      <span className="ml-auto rounded bg-[#e9eeea] px-2 py-0.5 text-[10px] font-medium text-[#3c4f3d]/70">
+                        Llama 3.3 70B
+                      </span>
+                    </div>
+                    <FormattedClinicalSummary summary={variantResult.clinical_summary} />
+
+                    {/* Evidence Confidence Matrix */}
+                    {variantResult.evidence_confidence && (
+                      <div className="mt-4 border-t border-[#3c4f3d]/10 pt-3">
+                        <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[#3c4f3d]/50">
+                          Evidence Confidence
+                        </div>
+                        <div className="grid grid-cols-3 gap-2">
+                          {Object.entries(variantResult.evidence_confidence)
+                            .filter(([key]) => key !== "overall")
+                            .map(([key, val]) => {
+                              const color =
+                                val.confidence === "High"
+                                  ? "bg-green-50 text-green-700 border-green-200"
+                                  : val.confidence === "Medium"
+                                    ? "bg-yellow-50 text-yellow-700 border-yellow-200"
+                                    : val.confidence === "Low"
+                                      ? "bg-orange-50 text-orange-700 border-orange-200"
+                                      : "bg-gray-50 text-gray-500 border-gray-200";
+                              return (
+                                <div
+                                  key={key}
+                                  className={`rounded border px-2 py-1.5 ${color}`}
+                                  title={val.note}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-semibold uppercase tracking-wide">
+                                      {key}
+                                    </span>
+                                    <span className="text-[10px] font-medium">
+                                      {val.confidence}
+                                    </span>
+                                  </div>
+                                  <div className="mt-0.5 text-[9px] leading-tight opacity-80">
+                                    {val.available ? "Available" : "Missing"}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                        </div>
+                        {/* Overall confidence badge */}
+                        {variantResult.evidence_confidence.overall && (
+                          <div className="mt-2 flex items-center gap-2">
+                            <span className="text-[10px] text-[#3c4f3d]/60">Overall:</span>
+                            <span
+                              className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                                variantResult.evidence_confidence.overall.level === "High"
+                                  ? "bg-green-100 text-green-800"
+                                  : variantResult.evidence_confidence.overall.level === "Medium"
+                                    ? "bg-yellow-100 text-yellow-800"
+                                    : "bg-red-100 text-red-800"
+                              }`}
+                            >
+                              {variantResult.evidence_confidence.overall.level}
+                            </span>
+                            <span className="text-[10px] text-[#3c4f3d]/50">
+                              {variantResult.evidence_confidence.overall.sources_available} sources,{" "}
+                              {variantResult.evidence_confidence.overall.high_confidence_sources} high-confidence
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Disclaimer */}
+                    <div className="mt-4 rounded bg-amber-50 border border-amber-200 p-3">
+                      <div className="flex items-start gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <p className="text-[11px] leading-relaxed text-amber-800">
+                          <strong>Computational Prediction Only:</strong> This summary is generated by an AI model (Llama 3.3 70B) using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation. Always verify critical findings with a board-certified clinical geneticist or molecular pathologist before making patient care decisions.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Legacy AI Summary (fallback) */}
+                {!variantResult.clinical_summary && variantResult.literature_context?.summary && (
                   <div className="mt-4 rounded-md bg-white p-3">
                     <div className="text-xs font-medium text-[#3c4f3d]/70 mb-2">
                       AI Clinical Summary
                     </div>
                     <FormattedClinicalSummary summary={variantResult.literature_context.summary} />
+                  </div>
+                )}
+
+                {/* In-Silico Mutagenesis Scan */}
+                {variantResult.ism_scan && (
+                  <div className="mt-4">
+                    <ISMHeatmap
+                      data={variantResult.ism_scan}
+                      geneSymbol={gene?.symbol}
+                      variantPosition={variantResult.position}
+                      chromosome={chromosome}
+                    />
+                  </div>
+                )}
+
+                {/* Counterfactual Analysis (from ISM position 0) */}
+                {variantResult.counterfactuals && (
+                  <div className="mt-4">
+                    <CounterfactualCard
+                      data={variantResult.counterfactuals}
+                      observedAlternative={variantResult.alternative}
+                    />
+                  </div>
+                )}
+
+                {/* ACMG/AMP Criteria Mapping */}
+                {variantResult.acmg_criteria && (
+                  <div className="mt-4">
+                    <ACMGCriteriaTable data={variantResult.acmg_criteria} />
                   </div>
                 )}
 
@@ -664,8 +805,10 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                           <strong>Classification Note:</strong> This is a standalone analysis without ClinVar reference data.
                           {variantResult.prediction.toLowerCase().includes("pathogenic") ? (
                             " Evo2 predicts this variant as potentially pathogenic. Consider clinical validation and review of functional studies before clinical decision-making."
-                          ) : (
+                          ) : variantResult.prediction.toLowerCase().includes("benign") ? (
                             " While Evo2 predicts this variant as likely benign, clinical interpretation should consider patient phenotype and family history."
+                          ) : (
+                            " Evo2 cannot confidently classify this variant. The delta score falls in the uncertain range — additional clinical or functional evidence is recommended."
                           )}
                         </p>
                       </div>
@@ -712,13 +855,28 @@ ACMG EVIDENCE
 • Code: ${variantResult.acmg_evidence?.code || 'None'}
 • ${variantResult.acmg_evidence?.description || 'Computational evidence is inconclusive'}
 
-AI CLINICAL SUMMARY
+${variantResult.clinical_summary ? `MULTI-MODAL RAG CLINICAL SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${variantResult.clinical_summary}
+
+EVIDENCE CONFIDENCE
+• Overall: ${variantResult.evidence_confidence?.overall?.level || 'N/A'} (${variantResult.evidence_confidence?.overall?.sources_available || 'N/A'} sources)
+• VEP: ${variantResult.evidence_confidence?.vep?.confidence || 'N/A'}
+• Evo2: ${variantResult.evidence_confidence?.evo2?.confidence || 'N/A'}
+• gnomAD: ${variantResult.evidence_confidence?.gnomad?.confidence || 'N/A'}
+• ClinVar: ${variantResult.evidence_confidence?.clinvar?.confidence || 'N/A'}
+• UniProt: ${variantResult.evidence_confidence?.uniprot?.confidence || 'N/A'}
+• PubMed: ${variantResult.evidence_confidence?.pubmed?.confidence || 'N/A'}
+` : `AI CLINICAL SUMMARY
 ${variantResult.literature_context?.summary || 'No clinical summary available.'}
+`}
 
 REFERENCES
 ${pubmedIds.length > 0 ? pubmedIds.map((id: string) => `• PMID:${id}`).join('\n') : '• No references available'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DISCLAIMER: This report is generated by computational models using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation. Always verify critical findings with a board-certified clinical geneticist or molecular pathologist before making patient care decisions.
+
 Cross-reference: https://varsome.com/position/${genomeId}/${chromosome}-${variantResult.position}
 `;
 
@@ -773,13 +931,28 @@ ACMG EVIDENCE
 • Code: ${variantResult.acmg_evidence?.code || 'None'}
 • ${variantResult.acmg_evidence?.description || 'Computational evidence is inconclusive'}
 
-AI CLINICAL SUMMARY
+${variantResult.clinical_summary ? `MULTI-MODAL RAG CLINICAL SUMMARY
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${variantResult.clinical_summary}
+
+EVIDENCE CONFIDENCE
+• Overall: ${variantResult.evidence_confidence?.overall?.level || 'N/A'} (${variantResult.evidence_confidence?.overall?.sources_available || 'N/A'} sources)
+• VEP: ${variantResult.evidence_confidence?.vep?.confidence || 'N/A'}
+• Evo2: ${variantResult.evidence_confidence?.evo2?.confidence || 'N/A'}
+• gnomAD: ${variantResult.evidence_confidence?.gnomad?.confidence || 'N/A'}
+• ClinVar: ${variantResult.evidence_confidence?.clinvar?.confidence || 'N/A'}
+• UniProt: ${variantResult.evidence_confidence?.uniprot?.confidence || 'N/A'}
+• PubMed: ${variantResult.evidence_confidence?.pubmed?.confidence || 'N/A'}
+` : `AI CLINICAL SUMMARY
 ${variantResult.literature_context?.summary || 'No clinical summary available.'}
+`}
 
 REFERENCES
 ${pubmedIds.length > 0 ? pubmedIds.map((id: string) => `• PMID:${id}`).join('\n') : '• No references available'}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+DISCLAIMER: This report is generated by computational models using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation. Always verify critical findings with a board-certified clinical geneticist or molecular pathologist before making patient care decisions.
+
 Cross-reference: https://varsome.com/position/${genomeId}/${chromosome}-${variantResult.position}
 `;
 
