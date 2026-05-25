@@ -35,11 +35,20 @@ export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, class
                 const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
                 if (!response.ok) {
                     const err = await response.json().catch(() => ({}));
-                    throw new Error(err.error || `PDB not found for ${uniprotId}`);
+                    throw new Error(err.error || `Structure not found for ${uniprotId}`);
                 }
+                
+                // Get format from headers
+                const format = response.headers.get("X-Model-Format") || "PDB";
+                const confidence = response.headers.get("X-Confidence-Score");
+                
                 const text = await response.text();
                 if (cancelled) return;
                 setPdbData(text);
+                
+                // Store format for viewer initialization
+                (window as any).__pdbFormat = format.toLowerCase() === "mmcif" ? "mmcif" : "pdb";
+                (window as any).__pdbConfidence = confidence;
             } catch (err) {
                 if (cancelled) return;
                 setError(err instanceof Error ? err.message : "Failed to load structure");
@@ -75,8 +84,9 @@ export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, class
 
                 viewerRef.current = viewer;
 
-                // Add model from PDB data
-                viewer.addModel(pdbData, "pdb");
+                // Add model from structure data (auto-detect format)
+                const format = (window as any).__pdbFormat || "pdb";
+                viewer.addModel(pdbData, format);
 
                 // Style: cartoon with secondary structure coloring
                 viewer.setStyle({}, { cartoon: { color: "spectrum" } });
@@ -152,7 +162,13 @@ export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, class
                     <AlertTriangle className="h-4 w-4 text-amber-600 flex-shrink-0 mt-0.5" />
                     <div className="text-xs text-amber-700">
                         <strong>Structure unavailable:</strong> {error}
-                        <div className="mt-1">
+                        <div className="mt-1.5 flex items-center gap-2">
+                            <button
+                                onClick={() => { setError(null); setLoading(true); setPdbData(null); }}
+                                className="text-[10px] px-2 py-1 rounded bg-indigo-50 text-indigo-600 hover:bg-indigo-100 border border-indigo-200 transition-colors"
+                            >
+                                Retry
+                            </button>
                             <a
                                 href={`https://alphafold.ebi.ac.uk/entry/${uniprotId}`}
                                 target="_blank" rel="noopener noreferrer"
