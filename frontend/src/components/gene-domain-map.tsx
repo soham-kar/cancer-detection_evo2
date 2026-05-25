@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ProteinStructureViewer } from "./protein-structure-viewer";
 
 // ── Static domain data for top 5 cancer genes ─────────────────────────────
 // Positions are in amino acid coordinates (UniProt canonical isoform)
@@ -441,6 +442,17 @@ export function GeneDomainMap({ geneSymbol, genomicPosition, chromosome, predict
                 {staticData ? "Domain boundaries from UniProt canonical sequence." : "Domain data fetched live from UniProt REST API."}
                 {" "}Amino acid position estimated from genomic coordinates.
             </p>
+
+            {/* 3D Protein Structure Viewer */}
+            {uniprotId && (
+                <div className="mt-3">
+                    <ProteinStructureViewer
+                        uniprotId={uniprotId}
+                        geneSymbol={geneSymbol}
+                        variantAA={variantAA}
+                    />
+                </div>
+            )}
         </div>
     );
 }
