@@ -22,6 +22,7 @@ export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, class
     const [error, setError] = useState<string | null>(null);
     const [pdbData, setPdbData] = useState<string | null>(null);
     const [showVariant, setShowVariant] = useState(true);
+    const [variantPlddt, setVariantPlddt] = useState<number | null>(null);
 
     // Fetch PDB file from AlphaFold
     useEffect(() => {
@@ -86,13 +87,62 @@ export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, class
 
                 // Add model from structure data (auto-detect format)
                 const format = (window as any).__pdbFormat || "pdb";
-                viewer.addModel(pdbData, format);
+                const model = viewer.addModel(pdbData, format);
 
-                // Style: cartoon with secondary structure coloring
-                viewer.setStyle({}, { cartoon: { color: "spectrum" } });
+                // ── pLDDT Confidence Coloring ──
+                // AlphaFold stores per-residue confidence (pLDDT) in the B-factor column
+                // Color scheme: Very high (>90) = dark blue, High (70-90) = light blue,
+                // Low (50-70) = yellow, Very low (<50) = orange/red
+                viewer.setStyle({}, {
+                    cartoon: {
+                        colorscheme: {
+                            prop: "b",
+                            gradient: "roygb",
+                            min: 50,
+                            max: 100,
+                        }
+                    }
+                });
 
-                // If variant position is known, highlight it
+                // Alternative: custom color function for discrete pLDDT bins
+                // This gives clinicians the standard AlphaFold color scheme
+                const plddtColors: Record<number, string> = {};
+                const atoms = model.selectedAtoms({});
+                for (const atom of atoms) {
+                    const plddt = atom.b || 0; // B-factor = pLDDT
+                    let color: string;
+                    if (plddt >= 90) color = "#0053D9";      // Very high (dark blue)
+                    else if (plddt >= 70) color = "#65CBF3";  // High (light blue)
+                    else if (plddt >= 50) color = "#FFDB13";  // Low (yellow)
+                    else color = "#FF7D45";                    // Very low (orange)
+                    
+                    if (atom.serial != null) {
+                        plddtColors[atom.serial] = color;
+                    }
+                }
+
+                // Apply pLDDT coloring
+                viewer.setStyle({}, {
+                    cartoon: {
+                        colorfunc: (atom: any) => {
+                            const plddt = atom.b || 0;
+                            if (plddt >= 90) return "#0053D9";
+                            if (plddt >= 70) return "#65CBF3";
+                            if (plddt >= 50) return "#FFDB13";
+                            return "#FF7D45";
+                        }
+                    }
+                });
+
+                // If variant position is known, highlight it and extract pLDDT
                 if (variantAA && showVariant) {
+                    // Find the variant atom to get its pLDDT
+                    const variantAtoms = model.selectedAtoms({ resi: variantAA });
+                    if (variantAtoms.length > 0) {
+                        const plddt = variantAtoms[0]?.b || 0;
+                        setVariantPlddt(Math.round(plddt));
+                    }
+
                     // Highlight the variant residue as spheres
                     const selection = { resi: variantAA };
                     viewer.addStyle(selection, { sphere: { radius: 0.8, color: "red" } });
@@ -231,25 +281,50 @@ export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, class
             </div>
 
             {/* Footer info */}
-            <div className="border-t border-slate-100 px-4 py-2.5 flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                    {variantAA && showVariant && (
-                        <span className="inline-flex items-center gap-1 text-[10px] text-red-600">
-                            <span className="h-2 w-2 rounded-full bg-red-500" />
-                            Variant position: aa {variantAA}
-                        </span>
-                    )}
-                    <span className="text-[10px] text-slate-400">
-                        Coloring: N-term (blue) → C-term (red)
+            <div className="border-t border-slate-100 px-4 py-2.5 space-y-2">
+                {/* pLDDT Legend */}
+                <div className="flex items-center gap-3 flex-wrap">
+                    <span className="text-[10px] font-medium text-slate-500">pLDDT Confidence:</span>
+                    <span className="inline-flex items-center gap-1 text-[10px]">
+                        <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#0053D9" }} />
+                        <span className="text-slate-600">Very high (&gt;90)</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[10px]">
+                        <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#65CBF3" }} />
+                        <span className="text-slate-600">High (70–90)</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[10px]">
+                        <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#FFDB13" }} />
+                        <span className="text-slate-600">Low (50–70)</span>
+                    </span>
+                    <span className="inline-flex items-center gap-1 text-[10px]">
+                        <span className="h-2.5 w-2.5 rounded-sm" style={{ backgroundColor: "#FF7D45" }} />
+                        <span className="text-slate-600">Very low (&lt;50)</span>
                     </span>
                 </div>
-                <a
-                    href={`https://alphafold.ebi.ac.uk/entry/${uniprotId}`}
-                    target="_blank" rel="noopener noreferrer"
-                    className="text-[10px] text-indigo-500 hover:text-indigo-700 underline"
-                >
-                    AlphaFold:{uniprotId} ↗
-                </a>
+
+                {/* Variant-specific pLDDT */}
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        {variantAA && showVariant && variantPlddt !== null && (
+                            <span className={`inline-flex items-center gap-1.5 text-[10px] font-medium px-2 py-0.5 rounded-full ${variantPlddt >= 90 ? "bg-blue-50 text-blue-700 border border-blue-200" : variantPlddt >= 70 ? "bg-sky-50 text-sky-700 border border-sky-200" : variantPlddt >= 50 ? "bg-yellow-50 text-yellow-700 border border-yellow-200" : "bg-orange-50 text-orange-700 border border-orange-200"}`}>
+                                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: variantPlddt >= 90 ? "#0053D9" : variantPlddt >= 70 ? "#65CBF3" : variantPlddt >= 50 ? "#FFDB13" : "#FF7D45" }} />
+                                Variant pLDDT: {variantPlddt}
+                                {variantPlddt >= 90 ? " (Very high — reliable)" : variantPlddt >= 70 ? " (High — interpretable)" : variantPlddt >= 50 ? " (Low — caution)" : " (Very low — speculative)"}
+                            </span>
+                        )}
+                        {variantAA && showVariant && variantPlddt === null && (
+                            <span className="text-[10px] text-slate-400">Variant position: aa {variantAA}</span>
+                        )}
+                    </div>
+                    <a
+                        href={`https://alphafold.ebi.ac.uk/entry/${uniprotId}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="text-[10px] text-indigo-500 hover:text-indigo-700 underline"
+                    >
+                        AlphaFold:{uniprotId} ↗
+                    </a>
+                </div>
             </div>
         </div>
     );
