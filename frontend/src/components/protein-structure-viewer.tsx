@@ -10,9 +10,9 @@ interface ProteinStructureViewerProps {
     className?: string;
 }
 
-// AlphaFold EBI provides PDB files directly
-function getAlphaFoldPdbUrl(uniprotId: string): string {
-    return `https://alphafold.ebi.ac.uk/files/AF-${uniprotId}-F1-model_v4.pdb`;
+// Fetch PDB file via our proxy (bypasses CORS)
+function getPdbProxyUrl(uniprotId: string): string {
+    return `/api/pdb-proxy?uniprotId=${uniprotId}`;
 }
 
 export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, className = "" }: ProteinStructureViewerProps) {
@@ -31,9 +31,12 @@ export function ProteinStructureViewer({ uniprotId, geneSymbol, variantAA, class
 
         async function fetchPdb() {
             try {
-                const url = getAlphaFoldPdbUrl(uniprotId);
+                const url = getPdbProxyUrl(uniprotId);
                 const response = await fetch(url, { signal: AbortSignal.timeout(15000) });
-                if (!response.ok) throw new Error(`AlphaFold PDB not found for ${uniprotId}`);
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    throw new Error(err.error || `PDB not found for ${uniprotId}`);
+                }
                 const text = await response.text();
                 if (cancelled) return;
                 setPdbData(text);
