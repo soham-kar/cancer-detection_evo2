@@ -269,10 +269,10 @@ export function GeneDomainMap({ geneSymbol, genomicPosition, chromosome, predict
         : null;
 
     // SVG dimensions
-    const svgW = 460;
-    const svgH = 54;
-    const barY = 20;
-    const barH = 22;
+    const svgW = 600;
+    const svgH = 80;
+    const barY = 28;
+    const barH = 28;
     const barX = 10;
     const barWidth = svgW - 20;
 
@@ -345,12 +345,40 @@ export function GeneDomainMap({ geneSymbol, genomicPosition, chromosome, predict
                         const aa = Math.round(frac * totalAA);
                         return (
                             <g key={frac}>
-                                <line x1={x} y1={barY + barH} x2={x} y2={barY + barH + 4} stroke="#94a3b8" strokeWidth={1} />
-                                <text x={x} y={svgH - 1} textAnchor="middle" fontSize={7} fill="#94a3b8">{aa}</text>
+                                <line x1={x} y1={barY + barH} x2={x} y2={barY + barH + 6} stroke="#94a3b8" strokeWidth={1} />
+                                <text x={x} y={svgH - 2} textAnchor="middle" fontSize={8} fill="#94a3b8">{aa}</text>
                             </g>
                         );
                     })}
                 </svg>
+            </div>
+
+            {/* External Links */}
+            <div className="mt-2 flex flex-wrap gap-2">
+                {uniprotId && (
+                    <a
+                        href={`https://alphafold.ebi.ac.uk/entry/${uniprotId}`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-indigo-50 px-2.5 py-1 text-[10px] font-medium text-indigo-700 border border-indigo-200 hover:bg-indigo-100 transition-colors"
+                    >
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                        </svg>
+                        View in AlphaFold
+                    </a>
+                )}
+                {uniprotId && (
+                    <a
+                        href={`https://www.rcsb.org/search?request=%7B%22query%22%3A%7B%22type%22%3A%22group%22%2C%22nodes%22%3A%5B%7B%22type%22%3A%22terminal%22%2C%22service%22%3A%22text%22%2C%22parameters%22%3A%7B%22attribute%22%3A%22rcsb_entity_source_organism.taxonomy_lineage_name%22%2C%22operator%22%3A%22contains_phrase%22%2C%22value%22%3A%22Homo%20sapiens%22%7D%7D%2C%7B%22type%22%3A%22terminal%22%2C%22service%22%3A%22text%22%2C%22parameters%22%3A%7B%22attribute%22%3A%22struct.title%22%2C%22operator%22%3A%22contains_phrase%22%2C%22value%22%3A%22${geneSymbol}%22%7D%7D%5D%2C%22logical_operator%22%3A%22and%22%7D%2C%22return_type%22%3A%22entry%22%7D`}
+                        target="_blank" rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 rounded-md bg-blue-50 px-2.5 py-1 text-[10px] font-medium text-blue-700 border border-blue-200 hover:bg-blue-100 transition-colors"
+                    >
+                        <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                        </svg>
+                        View in PDB
+                    </a>
+                )}
             </div>
 
             {/* Domain legend */}
@@ -365,20 +393,47 @@ export function GeneDomainMap({ geneSymbol, genomicPosition, chromosome, predict
 
             {/* Variant domain note */}
             {variantAA !== null && (
-                <div className={`mt-2 text-[10px] leading-relaxed rounded px-2 py-1 ${hitDomain
-                    ? "bg-red-50 text-red-700 border border-red-100"
-                    : isPredPathogenic
-                        ? "bg-amber-50 text-amber-800 border border-amber-100"
-                        : "bg-green-50 text-green-700 border border-green-100"
-                    }`}>
-                    {hitDomain
-                        ? <>Variant at ~aa {variantAA} falls in <strong>{hitDomain.name}</strong> — {hitDomain.description}.</>
+                <div className="mt-2 space-y-2">
+                    {/* Functional Consequence Badge */}
+                    {hitDomain && (
+                        <div className="rounded-lg border bg-white p-3">
+                            <div className="flex items-center gap-2 mb-1.5">
+                                <span className="flex h-5 w-5 items-center justify-center rounded-full" style={{ backgroundColor: hitDomain.color + "20" }}>
+                                    <svg className="h-3 w-3" style={{ color: hitDomain.color }} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+                                </span>
+                                <span className="text-xs font-semibold text-slate-700">Domain Impact: {hitDomain.name}</span>
+                            </div>
+                            <div className="text-[10px] text-slate-600 leading-relaxed">
+                                <strong>Functional role:</strong> {hitDomain.description}
+                            </div>
+                            <div className="mt-1.5 flex items-center gap-2">
+                                <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-medium ${isPredPathogenic ? "bg-red-100 text-red-700" : isPredBenign ? "bg-green-100 text-green-700" : "bg-amber-100 text-amber-700"}`}>
+                                    {isPredPathogenic ? "⚠️ Predicted Disruptive" : isPredBenign ? "✓ Likely Tolerated" : "◐ Uncertain Impact"}
+                                </span>
+                                <span className="text-[9px] text-slate-400">
+                                    Variant at aa {variantAA} of {totalAA}
+                                </span>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className={`text-[10px] leading-relaxed rounded px-2 py-1.5 ${hitDomain
+                        ? "bg-red-50 text-red-700 border border-red-100"
                         : isPredPathogenic
-                            ? <>Variant at ~aa {variantAA} is <strong>outside annotated functional domains</strong>. Evo2&apos;s pathogenic call is driven by the delta score (sequence-level signal), not domain disruption — this may reflect subtle splice or regulatory effects not captured by domain annotations.</>
-                            : isPredBenign
-                                ? <>Variant at ~aa {variantAA} is <strong>outside known functional domains</strong> — no critical catalytic or structural region disrupted. Consistent with benign classification.</>
-                                : <>Variant at ~aa {variantAA} is <strong>outside known functional domains</strong>. Domain location alone is not conclusive — interpret alongside delta score and population data.</>
-                    }
+                            ? "bg-amber-50 text-amber-800 border border-amber-100"
+                            : "bg-green-50 text-green-700 border border-green-100"
+                        }`}>
+                        {hitDomain
+                            ? <>Variant at ~aa {variantAA} falls in <strong>{hitDomain.name}</strong> — {hitDomain.description}.</>
+                            : isPredPathogenic
+                                ? <>Variant at ~aa {variantAA} is <strong>outside annotated functional domains</strong>. Evo2&apos;s pathogenic call is driven by the delta score (sequence-level signal), not domain disruption — this may reflect subtle splice or regulatory effects not captured by domain annotations.</>
+                                : isPredBenign
+                                    ? <>Variant at ~aa {variantAA} is <strong>outside known functional domains</strong> — no critical catalytic or structural region disrupted. Consistent with benign classification.</>
+                                    : <>Variant at ~aa {variantAA} is <strong>outside known functional domains</strong>. Domain location alone is not conclusive — interpret alongside delta score and population data.</>
+                        }
+                    </div>
                 </div>
             )}
 

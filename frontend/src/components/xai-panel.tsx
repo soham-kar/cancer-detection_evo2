@@ -103,15 +103,15 @@ export function XAIPanel({
       status: clinvarPresent ? (clinvarAgrees ? "agree" : "warn") : "na",
       note: clinvarPresent
         ? (clinvarAgrees ? "Independent curation agrees with Evo2" : "⚠ Discordant — may warrant reclassification")
-        : "No ClinVar entry for this variant",
+        : "No ClinVar entry — variant not yet submitted to public databases",
     },
     {
       source: "gnomAD v4.1",
       finding: gnomadPresent ? `AF = ${(af! * 100).toFixed(4)}%` : "Not observed",
-      status: gnomadPresent ? "agree" : "warn",
+      status: gnomadPresent ? "agree" : "na",
       note: gnomadPresent
-        ? (af! > 0.01 ? "Common — strong benign signal" : "Ultra-rare — interpret with delta score")
-        : "Absence may reflect rarity or sampling",
+        ? (af! > 0.01 ? "Common — strong benign signal (BA1 criterion)" : "Ultra-rare — absence supports pathogenicity but is not diagnostic")
+        : "Not observed in 800K+ individuals — absence is neutral (not diagnostic); many benign variants are simply not yet sampled",
     },
     {
       source: "ACMG Code",
@@ -119,13 +119,13 @@ export function XAIPanel({
       status: acmgPresent ? (acmgSupportsBenign ? "agree" : acmgSupportsPath ? "warn" : "na") : "na",
       note: acmgPresent
         ? (acmgSupportsBenign ? "Benign criteria met" : acmgSupportsPath ? "Pathogenic criteria triggered" : "Neutral ACMG criterion")
-        : "Delta score in uncertain range",
+        : "Delta score in uncertain range — between PP3 (pathogenic support) and BP4 (benign support) thresholds",
     },
     {
       source: "Evo2 AI",
       finding: `${prediction} (Evo2-7B: Δ = ${delta >= 0 ? "+" : ""}${delta.toFixed(6)})`,
       status: "agree",
-      note: "Reference prediction — trained on 9.3T DNA tokens",
+      note: "Reference prediction — trained on 9.3T DNA tokens across 100K+ genomes",
     },
   ];
   const agreeCount = consensusRows.filter((r) => r.status === "agree").length;
@@ -176,6 +176,31 @@ export function XAIPanel({
             Evo2 is a DNA language model trained on millions of genomic sequences. It scores how &quot;normal&quot; a sequence looks to evolution — like a grammar checker for DNA. Here is what drove this prediction:
           </p>
 
+          {/* ── Clinical Verdict Banner ── */}
+          <div className={`rounded-lg border p-3 ${isPathogenic ? "bg-red-50 border-red-200" : isBenign ? "bg-green-50 border-green-200" : "bg-amber-50 border-amber-200"}`}>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-bold ${isPathogenic ? "bg-red-100 text-red-800" : isBenign ? "bg-green-100 text-green-800" : "bg-amber-100 text-amber-800"}`}>
+                {isPathogenic ? "⚠️ PATHOGENIC" : isBenign ? "✓ BENIGN" : "◐ UNCERTAIN SIGNIFICANCE"}
+              </span>
+              <span className="text-[10px] text-slate-500">
+                Confidence: {confidencePct}% · Evidence: {evidenceStrength}%
+              </span>
+            </div>
+            {isPathogenic ? (
+              <p className="text-xs text-red-700 leading-relaxed">
+                <strong>Clinical action:</strong> Consider confirmatory testing, family segregation analysis, and genetic counseling. This variant is predicted to disrupt protein function.
+              </p>
+            ) : isBenign ? (
+              <p className="text-xs text-green-700 leading-relaxed">
+                <strong>Clinical action:</strong> Likely benign. No immediate action required unless conflicting family history or phenotype.
+              </p>
+            ) : (
+              <p className="text-xs text-amber-700 leading-relaxed">
+                <strong>Clinical action:</strong> Variant of Uncertain Significance. Consider: functional validation (splice assay, protein stability), family segregation analysis, or re-review in 12–24 months as new evidence accumulates.
+              </p>
+            )}
+          </div>
+
           {/* ── Delta Score Context Scale ── */}
           <div className="rounded-md bg-white border border-indigo-100 p-3">
             <div className="text-xs font-medium text-indigo-800 mb-2">📊 Delta Score in Context</div>
@@ -220,13 +245,37 @@ export function XAIPanel({
           {/* ── Evidence Consensus ── */}
           <div className="rounded-md bg-white border border-indigo-100 p-3 space-y-2">
             <div className="text-xs font-medium text-indigo-800">🛡️ Evidence Consensus</div>
-            <div
-              className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${
-                agreeCount >= 3 ? "bg-green-100 text-green-800" : agreeCount === 2 ? "bg-yellow-100 text-yellow-800" : "bg-red-100 text-red-800"
-              }`}
-            >
-              {agreeCount >= 3 ? "✅" : agreeCount === 2 ? "⚠️" : "❌"} {agreeCount}/4 sources support {isBenign ? "benign" : isPathogenic ? "pathogenic" : "uncertain"} classification
+            
+            {/* Evidence Completeness Ring */}
+            <div className="flex items-center gap-4">
+              <div className="relative h-16 w-16 flex-shrink-0">
+                <svg viewBox="0 0 36 36" className="h-full w-full -rotate-90">
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="#e2e8f0" strokeWidth="3" />
+                  <path d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke={agreeCount >= 3 ? "#22c55e" : agreeCount === 2 ? "#f59e0b" : "#ef4444"} strokeWidth="3" strokeDasharray={`${(agreeCount / 4) * 100}, 100`} />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="text-sm font-bold text-slate-700">{agreeCount}<span className="text-[9px] text-slate-400">/4</span></span>
+                </div>
+              </div>
+              <div>
+                <div className="text-sm font-semibold text-slate-700">
+                  {agreeCount >= 3 ? "Strong Evidence Base" : agreeCount === 2 ? "Moderate Evidence" : "Limited Evidence"}
+                </div>
+                <div className="text-[11px] text-slate-500 mt-0.5">
+                  {agreeCount} of 4 evidence sources support {isBenign ? "benign" : isPathogenic ? "pathogenic" : "uncertain"} classification
+                </div>
+              </div>
             </div>
+
+            {/* Source Pills */}
+            <div className="flex flex-wrap gap-2">
+              {consensusRows.map((row) => (
+                <div key={row.source} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-medium border ${row.status === "agree" ? "bg-green-50 text-green-700 border-green-200" : row.status === "warn" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-50 text-slate-500 border-slate-200"}`}>
+                  {row.status === "agree" ? "✓" : row.status === "warn" ? "⚠" : "○"} {row.source}
+                </div>
+              ))}
+            </div>
+
             <div className="overflow-x-auto">
               <table className="w-full text-xs border-separate" style={{ borderSpacing: "0 3px" }}>
                 <thead>
@@ -248,11 +297,11 @@ export function XAIPanel({
                             row.status === "agree"
                               ? "bg-green-100 text-green-700"
                               : row.status === "warn"
-                                ? "bg-yellow-100 text-yellow-700"
-                                : "bg-gray-100 text-gray-500"
+                                ? "bg-amber-100 text-amber-700"
+                                : "bg-slate-100 text-slate-500"
                           }`}
                         >
-                          {row.status === "agree" ? "✅ Agrees" : row.status === "warn" ? "⚠️ Caution" : "— N/A"}
+                          {row.status === "agree" ? "✓ Available" : row.status === "warn" ? "⚠ Caution" : "— Missing"}
                         </span>
                       </td>
                       <td className="px-2 py-1.5 text-[#3c4f3d]/50 hidden sm:table-cell rounded-r-md text-[10px]">{row.note}</td>
@@ -283,30 +332,34 @@ export function XAIPanel({
             <div>
               <div className="flex justify-between text-[10px] text-[#3c4f3d]/70 mb-0.5">
                 <span>Model Confidence <span className="text-[9px] text-[#3c4f3d]/40">(Evo2 internal consistency)</span></span>
-                <span className="font-mono font-semibold text-[#3c4f3d]">{confidencePct}%</span>
+                <span className={`font-mono font-semibold ${confidencePct >= 70 ? "text-green-600" : confidencePct >= 40 ? "text-yellow-600" : "text-red-600"}`}>{confidencePct}%</span>
               </div>
               <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${confidencePct}%` }} />
+                <div className={`h-full rounded-full transition-all duration-500 ${confidencePct >= 70 ? "bg-green-500" : confidencePct >= 40 ? "bg-yellow-400" : "bg-red-400"}`} style={{ width: `${confidencePct}%` }} />
+              </div>
+              <div className="text-[9px] text-slate-400 mt-0.5">
+                {confidencePct >= 70 ? "High confidence — model is consistent across multiple forward passes" : confidencePct >= 40 ? "Moderate confidence — some uncertainty in model predictions" : "Low confidence — model predictions are inconsistent; interpret with caution"}
               </div>
             </div>
             <div>
               <div className="flex justify-between text-[10px] text-[#3c4f3d]/70 mb-0.5">
                 <span>Evidence Strength <span className="text-[9px] text-[#3c4f3d]/40">(external data sources)</span></span>
-                <span className="font-mono font-semibold text-[#3c4f3d]">{evidenceStrength}%</span>
+                <span className={`font-mono font-semibold ${evidenceStrength >= 75 ? "text-green-600" : evidenceStrength >= 50 ? "text-yellow-600" : "text-red-600"}`}>{evidenceStrength}%</span>
               </div>
               <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
                 <div
-                  className={`h-full rounded-full transition-all duration-500 ${
-                    evidenceStrength >= 75 ? "bg-green-500" : evidenceStrength >= 50 ? "bg-yellow-400" : "bg-red-400"
-                  }`}
+                  className={`h-full rounded-full transition-all duration-500 ${evidenceStrength >= 75 ? "bg-green-500" : evidenceStrength >= 50 ? "bg-yellow-400" : "bg-red-400"}`}
                   style={{ width: `${evidenceStrength}%` }}
                 />
               </div>
+              <div className="text-[9px] text-slate-400 mt-0.5">
+                {evidenceStrength >= 75 ? "Strong evidence — multiple independent sources corroborate the prediction" : evidenceStrength >= 50 ? "Moderate evidence — some sources missing or ambiguous" : "Weak evidence — insufficient external data for confident classification"}
+              </div>
             </div>
             {evidenceStrength < 50 && (
-              <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1">
-                ⚠ Low evidence strength ({evidenceStrength}%). High model confidence does not equal high clinical certainty. Consider functional validation.
-              </p>
+              <div className={`text-[10px] rounded px-2 py-1.5 border ${isPathogenic ? "bg-red-50 text-red-700 border-red-200" : isBenign ? "bg-green-50 text-green-700 border-green-200" : "bg-amber-50 text-amber-700 border-amber-200"}`}>
+                <strong>⚠ Limited evidence ({evidenceStrength}%):</strong> {isPathogenic ? "Despite pathogenic prediction, external evidence is sparse. Consider functional validation before clinical action." : isBenign ? "Limited evidence supports benign classification. Re-review if new data emerges." : "Insufficient evidence for definitive classification. This is a true Variant of Uncertain Significance."}
+              </div>
             )}
           </div>
 
