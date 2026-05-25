@@ -10,7 +10,11 @@ import MetadataSidebar from "~/components/MetadataSidebar";
 import { ISMHeatmap } from "~/components/ism-heatmap";
 import { CounterfactualCard } from "~/components/counterfactual-card";
 import { ACMGCriteriaTable } from "~/components/acmg-criteria-table";
-import type { ISMScanResult, Counterfactuals, ACMGCriteriaResult } from "~/utils/genome-api";
+import { XAIPanel } from "~/components/xai-panel";
+import { KnowledgeGraphCard } from "~/components/knowledge-graph-card";
+import { ToolConcordance } from "~/components/tool-concordance";
+import { ACMGRefinedCard } from "~/components/acmg-refined-card";
+import type { ISMScanResult, Counterfactuals, ACMGCriteriaResult, KnowledgeGraph, ExternalScores, ACMGRefinedResult } from "~/utils/genome-api";
 
 interface DemoResult {
     success: boolean;
@@ -41,6 +45,12 @@ interface DemoResult {
     counterfactuals?: Counterfactuals | null;
     // ACMG/AMP criteria mapping
     acmg_criteria?: ACMGCriteriaResult | null;
+    // Knowledge graph
+    knowledge_graph?: KnowledgeGraph | null;
+    // External scores
+    external_scores?: ExternalScores | null;
+    // LLM-refined ACMG criteria
+    acmg_criteria_refined?: ACMGRefinedResult | null;
     // Legacy RAG structure for backward compatibility
     rag: {
         summary: string;
@@ -558,6 +568,48 @@ function DemoContent() {
                                         <ACMGCriteriaTable data={result.acmg_criteria} />
                                     </div>
                                 )}
+
+                                {/* LLM-Refined ACMG Criteria */}
+                                {result.acmg_criteria_refined && (
+                                    <div className="mx-8 mb-8">
+                                        <ACMGRefinedCard
+                                            refined={result.acmg_criteria_refined}
+                                            ruleBased={result.acmg_criteria ?? null}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* Knowledge Graph */}
+                                {result.knowledge_graph && (
+                                    <div className="mx-8 mb-8">
+                                        <KnowledgeGraphCard data={result.knowledge_graph} />
+                                    </div>
+                                )}
+
+                                {/* Multi-Tool Concordance */}
+                                {result.external_scores && (
+                                    <div className="mx-8 mb-8">
+                                        <ToolConcordance
+                                            data={result.external_scores}
+                                            evo2Prediction={result.prediction}
+                                            evo2Delta={result.delta_score}
+                                        />
+                                    </div>
+                                )}
+
+                                {/* XAI Panel */}
+                                <div className="mx-8 mb-8">
+                                    <XAIPanel
+                                        geneSymbol={result.variant?.gene ?? "Unknown"}
+                                        chromosome={result.variant?.chromosome ?? ""}
+                                        position={result.variant?.position ?? 0}
+                                        reference=""
+                                        alternative=""
+                                        prediction={result.prediction}
+                                        deltaScore={result.delta_score}
+                                        classificationConfidence={result.classification_confidence}
+                                    />
+                                </div>
 
                                 {/* References / PMID Links */}
                                 <div className="pt-6 mt-4 mx-8 mb-8 border-t border-slate-100">

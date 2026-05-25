@@ -28,6 +28,10 @@ import { FormattedClinicalSummary } from "./formatted-clinical-summary";
 import { ISMHeatmap } from "./ism-heatmap";
 import { CounterfactualCard } from "./counterfactual-card";
 import { ACMGCriteriaTable } from "./acmg-criteria-table";
+import { XAIPanel } from "./xai-panel";
+import { KnowledgeGraphCard } from "./knowledge-graph-card";
+import { ToolConcordance } from "./tool-concordance";
+import { ACMGRefinedCard } from "./acmg-refined-card";
 
 export interface VariantAnalysisHandle {
   focusAlternativeInput: () => void;
@@ -725,6 +729,55 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                     <ACMGCriteriaTable data={variantResult.acmg_criteria} />
                   </div>
                 )}
+
+                {/* LLM-Refined ACMG Criteria */}
+                {variantResult.acmg_criteria_refined && (
+                  <div className="mt-4">
+                    <ACMGRefinedCard
+                      refined={variantResult.acmg_criteria_refined}
+                      ruleBased={variantResult.acmg_criteria ?? null}
+                    />
+                  </div>
+                )}
+
+                {/* Knowledge Graph (Gene → Disease → Drug) */}
+                {variantResult.knowledge_graph && (
+                  <div className="mt-4">
+                    <KnowledgeGraphCard data={variantResult.knowledge_graph} />
+                  </div>
+                )}
+
+                {/* Multi-Tool Concordance */}
+                {variantResult.external_scores && (
+                  <div className="mt-4">
+                    <ToolConcordance
+                      data={variantResult.external_scores}
+                      evo2Prediction={variantResult.prediction}
+                      evo2Delta={variantResult.delta_score}
+                      clinvarClassification={variantResult.clinvar_evidence?.status ?? null}
+                    />
+                  </div>
+                )}
+
+                {/* XAI Panel */}
+                <div className="mt-4">
+                  <XAIPanel
+                    geneSymbol={gene?.symbol ?? "Unknown"}
+                    chromosome={chromosome}
+                    position={variantResult.position}
+                    reference={variantResult.reference}
+                    alternative={variantResult.alternative}
+                    prediction={variantResult.prediction}
+                    deltaScore={variantResult.delta_score}
+                    classificationConfidence={variantResult.classification_confidence}
+                    variationType={null}
+                    clinvarClassification={variantResult.clinvar_evidence?.status ?? null}
+                    populationFrequency={variantResult.population_frequency ?? null}
+                    acmgEvidence={variantResult.acmg_evidence ?? null}
+                    xaiFactors={variantResult.xai_factors?.factors ?? null}
+                    vepAnnotation={null}
+                  />
+                </div>
 
                 {/* Evidence Summary */}
                 <div className="mt-4 rounded-md border border-[#3c4f3d]/10 bg-gradient-to-br from-[#e9eeea]/50 to-white p-4">

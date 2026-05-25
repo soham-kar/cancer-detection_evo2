@@ -71,6 +71,12 @@ model AnalysisReport {
   counterfactuals        String?
   // ACMG/AMP criteria mapping
   acmgCriteria           String?
+  // Knowledge graph (gene-disease-drug)
+  knowledgeGraph         String?
+  // External scores (CADD, REVEL)
+  externalScores         String?
+  // LLM-refined ACMG criteria
+  acmgCriteriaRefined    String?
   // Analysis source: 'clinvar' or 'custom'
   analysisSource           String?
   // VEP annotation: consequence, aaChange, codons, etc.

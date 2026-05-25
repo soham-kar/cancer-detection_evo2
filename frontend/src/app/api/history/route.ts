@@ -48,6 +48,9 @@ export async function GET(request: NextRequest) {
                     xaiFactors: report.xaiFactors ? JSON.parse(report.xaiFactors) : null,
                     counterfactuals: report.counterfactuals ? JSON.parse(report.counterfactuals) : null,
                     acmgCriteria: report.acmgCriteria ? JSON.parse(report.acmgCriteria) : null,
+                    knowledgeGraph: report.knowledgeGraph ? JSON.parse(report.knowledgeGraph) : null,
+                    externalScores: report.externalScores ? JSON.parse(report.externalScores) : null,
+                    acmgCriteriaRefined: report.acmgCriteriaRefined ? JSON.parse(report.acmgCriteriaRefined) : null,
                 };
 
                 return NextResponse.json({ report: parsedReport });
@@ -82,6 +85,9 @@ export async function GET(request: NextRequest) {
                     xaiFactors: r.xaiFactors ? JSON.parse(r.xaiFactors) : null,
                     counterfactuals: r.counterfactuals ? JSON.parse(r.counterfactuals) : null,
                     acmgCriteria: r.acmgCriteria ? JSON.parse(r.acmgCriteria) : null,
+                    knowledgeGraph: r.knowledgeGraph ? JSON.parse(r.knowledgeGraph) : null,
+                    externalScores: r.externalScores ? JSON.parse(r.externalScores) : null,
+                    acmgCriteriaRefined: r.acmgCriteriaRefined ? JSON.parse(r.acmgCriteriaRefined) : null,
                 })),
                 total: reports.length,
             });

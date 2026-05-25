@@ -12,7 +12,11 @@ import { FormattedClinicalSummary } from "./formatted-clinical-summary";
 import { ISMHeatmap } from "./ism-heatmap";
 import { CounterfactualCard } from "./counterfactual-card";
 import { ACMGCriteriaTable } from "./acmg-criteria-table";
-import type { ISMScanResult, XAIFactors, Counterfactuals, ACMGCriteriaResult } from "~/utils/genome-api";
+import { XAIPanel } from "./xai-panel";
+import { KnowledgeGraphCard } from "./knowledge-graph-card";
+import { ToolConcordance } from "./tool-concordance";
+import { ACMGRefinedCard } from "./acmg-refined-card";
+import type { ISMScanResult, XAIFactors, Counterfactuals, ACMGCriteriaResult, KnowledgeGraph, ExternalScores, ACMGRefinedResult } from "~/utils/genome-api";
 
 interface SavedReport {
     id: string;
@@ -64,6 +68,9 @@ interface SavedReport {
     xaiFactors?: XAIFactors | null;
     counterfactuals?: Counterfactuals | null;
     acmgCriteria?: ACMGCriteriaResult | null;
+    knowledgeGraph?: KnowledgeGraph | null;
+    externalScores?: ExternalScores | null;
+    acmgCriteriaRefined?: ACMGRefinedResult | null;
     createdAt: string;
 }
 
@@ -721,311 +728,81 @@ Cross-references:
                         )}
                     </div>
 
+                    {/* ── In-Silico Mutagenesis Scan ── */}
+                    {report.ismScanData && (
+                        <div className="mt-4">
+                            <ISMHeatmap
+                                data={report.ismScanData}
+                                geneSymbol={report.geneSymbol}
+                                variantPosition={report.position}
+                                chromosome={report.chromosome}
+                            />
+                        </div>
+                    )}
+
+                    {/* ── Counterfactual Analysis ── */}
+                    {report.counterfactuals && (
+                        <div className="mt-4">
+                            <CounterfactualCard
+                                data={report.counterfactuals}
+                                observedAlternative={report.alternative}
+                            />
+                        </div>
+                    )}
+
+                    {/* ── ACMG/AMP Criteria Mapping ── */}
+                    {report.acmgCriteria && (
+                        <div className="mt-4">
+                            <ACMGCriteriaTable data={report.acmgCriteria} />
+                        </div>
+                    )}
+
+                    {/* ── LLM-Refined ACMG Criteria ── */}
+                    {report.acmgCriteriaRefined && (
+                        <div className="mt-4">
+                            <ACMGRefinedCard
+                                refined={report.acmgCriteriaRefined}
+                                ruleBased={report.acmgCriteria ?? null}
+                            />
+                        </div>
+                    )}
+
                     {/* ── XAI: Why did Evo2 say this? ── */}
-                    <div className="rounded-md border border-indigo-200 bg-indigo-50/50 p-4">
-                        <button onClick={() => setShowXAI(v => !v)}
-                            className="w-full flex items-center justify-between text-sm font-medium text-indigo-900 hover:text-indigo-700 transition-colors">
-                            <span className="flex items-center gap-2">
-                                <Brain className="h-4 w-4" />
-                                Why did Evo2 predict this? — XAI Confidence Breakdown
-                            </span>
-                            <span className="text-xs text-indigo-500">{showXAI ? "▲ hide" : "▼ show"}</span>
-                        </button>
+                    <XAIPanel
+                        geneSymbol={report.geneSymbol}
+                        chromosome={report.chromosome}
+                        position={report.position}
+                        reference={report.reference}
+                        alternative={report.alternative}
+                        prediction={report.prediction}
+                        deltaScore={report.deltaScore}
+                        classificationConfidence={report.classificationConfidence}
+                        variationType={report.variationType}
+                        clinvarClassification={report.clinvarClassification}
+                        populationFrequency={report.populationFrequency}
+                        acmgEvidence={report.acmgEvidence}
+                        xaiFactors={report.xaiFactors?.factors ?? null}
+                        vepAnnotation={report.vepAnnotation}
+                    />
 
-                        {showXAI && (
-                            <div className="mt-4 space-y-4">
-                                <p className="text-xs text-indigo-700/80">
-                                    Evo2 is a DNA language model trained on millions of genomic sequences. It scores how &quot;normal&quot; a sequence looks to evolution — like a grammar checker for DNA. Here is what drove this prediction:
-                                </p>
+                    {/* ── Knowledge Graph ── */}
+                    {report.knowledgeGraph && (
+                        <div className="mt-4">
+                            <KnowledgeGraphCard data={report.knowledgeGraph} />
+                        </div>
+                    )}
 
-                                {/* ── Delta Score Context Scale ── */}
-                                <div className="rounded-md bg-white border border-indigo-100 p-3">
-                                    <div className="text-xs font-medium text-indigo-800 mb-2">📊 Delta Score in Context</div>
-                                    {(() => {
-                                        const d = report.deltaScore ?? 0;
-                                        // Evo2 real output range: pathogenic ~-0.02 to -0.001, benign 0.0 to +0.005
-                                        // Scale: -0.02 (left) to +0.01 (right)
-                                        const SCALE_MIN = -0.02;
-                                        const SCALE_MAX = 0.01;
-                                        const SCALE_RANGE = SCALE_MAX - SCALE_MIN;
-                                        // Pathogenic boundary: -0.001 (right edge of red zone)
-                                        // Uncertain: -0.001 to 0
-                                        // Benign: > 0
-                                        const PATH_BOUNDARY = -0.001; // as fraction of scale range
-                                        const PATH_PCT = Math.round(((PATH_BOUNDARY - SCALE_MIN) / SCALE_RANGE) * 100);  // ~63%
-                                        const ZERO_PCT = Math.round(((0 - SCALE_MIN) / SCALE_RANGE) * 100);               // ~67%
-
-                                        const clamp = Math.max(SCALE_MIN, Math.min(SCALE_MAX, d));
-                                        const needlePct = Math.round(((clamp - SCALE_MIN) / SCALE_RANGE) * 100);
-
-                                        // Zone is derived from the ACTUAL prediction, not the ruler thresholds
-                                        const zone = isPathogenic ? 'Pathogenic' : isBenign ? 'Benign' : 'Uncertain';
-                                        const zoneColor = isPathogenic ? 'text-red-600' : isBenign ? 'text-green-700' : 'text-yellow-600';
-                                        return (
-                                            <div className="space-y-1.5">
-                                                <div className="relative h-5 rounded-full overflow-hidden">
-                                                    <div className="absolute inset-0 flex">
-                                                        <div className="h-full bg-red-200" style={{ width: `${PATH_PCT}%` }} title={`Pathogenic zone (delta < ${PATH_BOUNDARY})`} />
-                                                        <div className="h-full bg-yellow-100" style={{ width: `${ZERO_PCT - PATH_PCT}%` }} title="Uncertain zone" />
-                                                        <div className="h-full bg-green-200" style={{ width: `${100 - ZERO_PCT}%` }} title="Benign zone (delta > 0.0)" />
-                                                    </div>
-                                                    <div
-                                                        className="absolute top-0 bottom-0 w-1 rounded-full bg-[#1e1b4b] shadow-md transition-all duration-700"
-                                                        style={{ left: `calc(${needlePct}% - 2px)` }}
-                                                        title={`Delta: ${d.toFixed(6)}`}
-                                                    />
-                                                </div>
-                                                <div className="flex justify-between text-[9px] text-[#3c4f3d]/60">
-                                                    <span>◀ Pathogenic</span>
-                                                    <span className="text-yellow-600">Uncertain</span>
-                                                    <span>Benign ▶</span>
-                                                </div>
-                                                <div className="flex justify-between text-[8px] text-[#3c4f3d]/40">
-                                                    <span>{SCALE_MIN}</span>
-                                                    <span>{PATH_BOUNDARY}</span>
-                                                    <span>0.0</span>
-                                                    <span>+{SCALE_MAX}</span>
-                                                </div>
-                                                <div className={`text-[10px] font-medium mt-1 ${zoneColor}`}>
-                                                    Delta score <strong>{d.toFixed(6)}</strong> → Evo2 classifies this as <strong>{zone}</strong>.{" "}
-                                                    {isPathogenic
-                                                        ? "Negative delta means this sequence looks statistically unusual to Evo2 — it has rarely seen sequences like this in healthy genomes."
-                                                        : isBenign
-                                                            ? "Positive delta means Evo2 has seen similar sequences in healthy genomes — evolutionarily well-tolerated."
-                                                            : "Delta score is near zero — Evo2 cannot distinguish this sequence from normal background."}
-                                                </div>
-                                                <div className="text-[10px] text-[#3c4f3d]/50 mt-1 italic">
-                                                    This score is milder than most known pathogenic {report.geneSymbol} variants and consistent with many benign variants.
-                                                </div>
-                                            </div>
-                                        );
-                                    })()}
-                                </div>
-
-                                {/* ── ISM Scan (In-Silico Mutagenesis) ── */}
-                                {report.ismScanData && (
-                                    <div className="mt-3">
-                                        <ISMHeatmap
-                                            data={report.ismScanData}
-                                            geneSymbol={report.geneSymbol}
-                                            variantPosition={report.position}
-                                            chromosome={report.chromosome}
-                                            compact
-                                        />
-                                    </div>
-                                )}
-
-                                {/* ── Counterfactual Analysis ── */}
-                                {report.counterfactuals && (
-                                    <div className="mt-3">
-                                        <CounterfactualCard
-                                            data={report.counterfactuals}
-                                            observedAlternative={report.alternative}
-                                        />
-                                    </div>
-                                )}
-
-                                {/* ── ACMG/AMP Criteria Mapping ── */}
-                                {report.acmgCriteria && (
-                                    <div className="mt-3">
-                                        <ACMGCriteriaTable data={report.acmgCriteria} compact />
-                                    </div>
-                                )}
-
-                                {/* ── Evidence Consensus (moved up: executive summary before deep dive) ── */}
-                                {(() => {
-                                    const clinvarPresent = !!report.clinvarClassification && report.clinvarClassification !== 'Unknown';
-                                    const clinvarAgrees = clinvarPresent && !isDiscordant;
-                                    const gnomadPresent = report.populationFrequency?.gnomad_af !== null && report.populationFrequency?.gnomad_af !== undefined;
-                                    const acmgPresent = !!report.acmgEvidence?.code && report.acmgEvidence.code !== 'None';
-                                    const acmgSupportsBenign = report.acmgEvidence?.code?.includes('BP') ?? false;
-                                    const acmgSupportsPath = report.acmgEvidence?.code?.includes('PP') || report.acmgEvidence?.code?.includes('PS') || report.acmgEvidence?.code?.includes('PM');
-
-                                    type RowStatus2 = 'agree' | 'warn' | 'na';
-                                    const rows2: { source: string; finding: string; status: RowStatus2; note: string }[] = [
-                                        {
-                                            source: 'ClinVar',
-                                            finding: clinvarPresent ? report.clinvarClassification! : 'Not curated',
-                                            status: clinvarPresent ? (clinvarAgrees ? 'agree' : 'warn') : 'na' as RowStatus2,
-                                            note: clinvarPresent
-                                                ? (clinvarAgrees ? 'Independent curation agrees with Evo2' : '⚠ Discordant — may warrant reclassification')
-                                                : 'No ClinVar entry for this variant',
-                                        },
-                                        {
-                                            source: 'gnomAD v4.1',
-                                            finding: gnomadPresent ? `AF = ${(report.populationFrequency!.gnomad_af! * 100).toFixed(4)}%` : 'Not observed',
-                                            status: gnomadPresent ? 'agree' : 'warn' as RowStatus2,
-                                            note: gnomadPresent
-                                                ? (report.populationFrequency!.gnomad_af! > 0.01 ? 'Common — strong benign signal' : 'Ultra-rare — interpret with delta score')
-                                                : 'Absence may reflect rarity or sampling',
-                                        },
-                                        {
-                                            source: 'ACMG Code',
-                                            finding: acmgPresent ? `${report.acmgEvidence!.code} (${report.acmgEvidence!.strength ?? 'N/A'})` : 'No code triggered',
-                                            status: acmgPresent ? (acmgSupportsBenign ? 'agree' : acmgSupportsPath ? 'warn' : 'na') : 'na' as RowStatus2,
-                                            note: acmgPresent
-                                                ? (acmgSupportsBenign ? 'Benign criteria met' : acmgSupportsPath ? 'Pathogenic criteria triggered' : 'Neutral ACMG criterion')
-                                                : 'Delta score in uncertain range',
-                                        },
-                                        {
-                                            source: 'Evo2 AI',
-                                            finding: `${report.prediction} (Evo2-7B: Δ = ${(report.deltaScore ?? 0) >= 0 ? '+' : ''}${(report.deltaScore ?? 0).toFixed(6)})`,
-                                            status: 'agree' as RowStatus2,
-                                            note: 'Reference prediction — trained on 2.7B DNA tokens',
-                                        },
-                                    ];
-                                    const agreeCount2 = rows2.filter(r => r.status === 'agree').length;
-                                    return (
-                                        <div className="rounded-md bg-white border border-indigo-100 p-3 space-y-2">
-                                            <div className="text-xs font-medium text-indigo-800">🛡️ Evidence Consensus</div>
-                                            <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-semibold ${agreeCount2 >= 3 ? 'bg-green-100 text-green-800' : agreeCount2 === 2 ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
-                                                }`}>
-                                                {agreeCount2 >= 3 ? '✅' : agreeCount2 === 2 ? '⚠️' : '❌'} {agreeCount2}/4 sources support {isBenign ? 'benign' : isPathogenic ? 'pathogenic' : 'uncertain'} classification
-                                            </div>
-                                            <div className="overflow-x-auto">
-                                                <table className="w-full text-xs border-separate" style={{ borderSpacing: '0 3px' }}>
-                                                    <thead><tr className="text-[#3c4f3d]/50">
-                                                        <th className="text-left font-medium px-2 py-1">Source</th>
-                                                        <th className="text-left font-medium px-2 py-1">Finding</th>
-                                                        <th className="text-left font-medium px-2 py-1">Status</th>
-                                                        <th className="text-left font-medium px-2 py-1 hidden sm:table-cell">Note</th>
-                                                    </tr></thead>
-                                                    <tbody>
-                                                        {rows2.map(row => (
-                                                            <tr key={row.source} className="bg-[#f9fafb] rounded-md">
-                                                                <td className="px-2 py-1.5 font-medium text-[#3c4f3d] rounded-l-md">{row.source}</td>
-                                                                <td className="px-2 py-1.5 font-mono text-[10px] text-[#3c4f3d]/80">{row.finding}</td>
-                                                                <td className="px-2 py-1.5">
-                                                                    <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold ${row.status === 'agree' ? 'bg-green-100 text-green-700'
-                                                                        : row.status === 'warn' ? 'bg-yellow-100 text-yellow-700'
-                                                                            : 'bg-gray-100 text-gray-500'
-                                                                        }`}>
-                                                                        {row.status === 'agree' ? '✅ Agrees' : row.status === 'warn' ? '⚠️ Caution' : '— N/A'}
-                                                                    </span>
-                                                                </td>
-                                                                <td className="px-2 py-1.5 text-[#3c4f3d]/50 hidden sm:table-cell rounded-r-md text-[10px]">{row.note}</td>
-                                                            </tr>
-                                                        ))}
-                                                    </tbody>
-                                                </table>
-                                            </div>
-                                            {/* Narrative */}
-                                            <div className="space-y-2 text-sm text-[#3c4f3d] leading-relaxed border-t border-[#3c4f3d]/10 pt-3">
-                                                <div className="flex items-start gap-2">
-                                                    <span className={`mt-1 h-2 w-2 rounded-full flex-shrink-0 ${isPathogenic ? 'bg-red-500' : 'bg-green-500'}`} />
-                                                    <p><strong>Evo2 predicts {report.prediction}</strong> with {confidencePct}% model confidence. {predictionDetail}</p>
-                                                </div>
-                                                <div className="flex items-start gap-2">
-                                                    <span className="mt-1 h-2 w-2 rounded-full flex-shrink-0 bg-amber-500" />
-                                                    <p><strong>Population data:</strong> {populationDetail}</p>
-                                                </div>
-                                                <div className="flex items-start gap-2">
-                                                    <span className="mt-1 h-2 w-2 rounded-full flex-shrink-0 bg-purple-500" />
-                                                    <p><strong>ACMG ({report.acmgEvidence?.code || 'None'}):</strong> {acmgDetail}</p>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    );
-                                })()}
-
-                                {(() => {
-                                    const evidenceStrength = [
-                                        (report.clinvarClassification && report.clinvarClassification !== 'not_provided' && report.clinvarClassification !== 'Unknown') ? 25 : 0,
-                                        (report.populationFrequency?.gnomad_af !== null && report.populationFrequency?.gnomad_af !== undefined) ? 25 : 0,
-                                        (report.acmgEvidence?.code && report.acmgEvidence.code !== 'None') ? 25 : 0,
-                                        Math.abs(report.deltaScore ?? 0) > 0.00001 ? 25 : 0,
-                                    ].reduce((a, b) => a + b, 0);
-
-                                    return (
-                                        <div className="rounded-md bg-white border border-indigo-100 p-3 space-y-2">
-                                            <div className="text-xs font-medium text-indigo-800">⚖️ Confidence Breakdown</div>
-                                            <div>
-                                                <div className="flex justify-between text-[10px] text-[#3c4f3d]/70 mb-0.5">
-                                                    <span>Model Confidence <span className="text-[9px] text-[#3c4f3d]/40">(Evo2 internal consistency)</span></span>
-                                                    <span className="font-mono font-semibold text-[#3c4f3d]">{confidencePct}%</span>
-                                                </div>
-                                                <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                                                    <div className="h-full rounded-full bg-indigo-500 transition-all duration-500" style={{ width: `${confidencePct}%` }} />
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <div className="flex justify-between text-[10px] text-[#3c4f3d]/70 mb-0.5">
-                                                    <span>Evidence Strength <span className="text-[9px] text-[#3c4f3d]/40">(external data sources)</span></span>
-                                                    <span className="font-mono font-semibold text-[#3c4f3d]">{evidenceStrength}%</span>
-                                                </div>
-                                                <div className="h-2 w-full rounded-full bg-gray-100 overflow-hidden">
-                                                    <div className={`h-full rounded-full transition-all duration-500 ${evidenceStrength >= 75 ? 'bg-green-500' : evidenceStrength >= 50 ? 'bg-yellow-400' : 'bg-red-400'
-                                                        }`} style={{ width: `${evidenceStrength}%` }} />
-                                                </div>
-                                            </div>
-                                            {evidenceStrength < 50 && (
-                                                <p className="text-[10px] text-amber-700 bg-amber-50 border border-amber-100 rounded px-2 py-1">
-                                                    ⚠ Low evidence strength ({evidenceStrength}%). High model confidence does not equal high clinical certainty. Consider functional validation.
-                                                </p>
-                                            )}
-                                        </div>
-                                    );
-                                })()}
-
-                                {/* ── Factor Bars ── */}
-                                <div className="space-y-3">
-                                    {factors.map(f => (
-                                        <div key={f.label}>
-                                            <div className="flex justify-between text-xs mb-1">
-                                                <span className="font-medium text-[#3c4f3d]">{f.label}</span>
-                                                <span className="font-mono text-[#3c4f3d]/70">{f.contribution}%</span>
-                                            </div>
-                                            <div className="h-2 w-full rounded-full bg-gray-200 overflow-hidden">
-                                                <div className="h-full rounded-full transition-all duration-500"
-                                                    style={{ width: `${(f.contribution / 50) * 100}%`, backgroundColor: f.color }} />
-                                            </div>
-                                            <div className="mt-0.5 text-[10px] text-[#3c4f3d]/60">{f.detail}</div>
-                                        </div>
-                                    ))}
-                                </div>
-
-                                {/* ── Sequence Context ── */}
-                                <VariantSequenceContext
-                                    chromosome={report.chromosome}
-                                    position={report.position}
-                                    reference={report.reference}
-                                    alternative={report.alternative}
-                                    geneSymbol={report.geneSymbol}
-                                    variationType={report.variationType}
-                                />
-
-                                {/* ── Protein Domain Map ── */}
-                                <GeneDomainMap
-                                    geneSymbol={report.geneSymbol}
-                                    genomicPosition={report.position}
-                                    chromosome={report.chromosome}
-                                    prediction={report.prediction}
-                                />
-
-                                {/* ── Molecular Mechanism Card ── */}
-                                <VariantMechanismExplainer
-                                    geneSymbol={report.geneSymbol}
-                                    chromosome={report.chromosome}
-                                    genomicPosition={report.position}
-                                    reference={report.reference || "N"}
-                                    alternative={report.alternative}
-                                    variantType={report.variationType || "SNV"}
-                                    deltaScore={report.deltaScore}
-                                    prediction={report.prediction}
-                                    vepAnnotation={report.vepAnnotation}
-                                />
-
-                                {/* ACMG clinical note */}
-                                {report.acmgEvidence?.clinical_note && (
-                                    <div className="rounded-md bg-white border border-indigo-100 p-3">
-                                        <div className="text-xs font-medium text-indigo-800 mb-1">🧬 Evo2 Model Note</div>
-                                        <div className="text-xs text-[#3c4f3d]/80 leading-relaxed">{report.acmgEvidence.clinical_note}</div>
-                                    </div>
-                                )}
-
-                            </div>
-                        )}
-                    </div>
+                    {/* ── Multi-Tool Concordance ── */}
+                    {report.externalScores && (
+                        <div className="mt-4">
+                            <ToolConcordance
+                                data={report.externalScores}
+                                evo2Prediction={report.prediction}
+                                evo2Delta={report.deltaScore}
+                                clinvarClassification={report.clinvarClassification}
+                            />
+                        </div>
+                    )}
 
                     {/* ── Evidence Consensus Table now lives inside XAI panel above ── */}
 

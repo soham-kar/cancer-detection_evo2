@@ -239,10 +239,10 @@ evo2_image = (
         "openpyxl",
         "groq>=0.4.0",  # Official Groq SDK for LLM
     )
-    .pip_install_from_requirements("requirements.txt")
+    .pip_install_from_requirements("backend/requirements.txt")
     .env({"PYTHONPATH": "/root"})
     # Add clinical enrichment module to the image (MUST BE LAST)
-    .add_local_file("clinical_enrichment.py", remote_path="/root/clinical_enrichment.py")
+    .add_local_file("backend/clinical_enrichment.py", remote_path="/root/clinical_enrichment.py")
 )
 
 app = modal.App(
@@ -1203,6 +1203,44 @@ class Evo2Model:
             )
             result["acmg_criteria"] = acmg_criteria
         
+        # Fetch knowledge graph (gene-disease-drug associations)
+        if gene_symbol:
+            ensembl_id = vep_annotation.get("geneId") if vep_annotation else None
+            knowledge_graph = self._fetch_knowledge_graph(gene_symbol, ensembl_id)
+            if knowledge_graph.get("diseases") or knowledge_graph.get("drugs"):
+                result["knowledge_graph"] = knowledge_graph
+        
+        # Fetch external scores for multi-tool concordance
+        if reference:
+            external_scores = self._fetch_external_scores(
+                chromosome=chromosome,
+                position=variant_position,
+                reference=reference,
+                alternative=alternative
+            )
+            if external_scores.get("cadd"):
+                result["external_scores"] = external_scores
+        
+        # LLM-powered ACMG criteria refinement
+        if gene_symbol and os.getenv("GROQ_API_KEY") and acmg_criteria:
+            try:
+                variant_str = f"{reference}>{alternative}"
+                acmg_refined = self._refine_acmg_with_llm(
+                    gene_symbol=gene_symbol,
+                    variant_str=variant_str,
+                    rule_based_acmg=acmg_criteria,
+                    delta_score=delta_score,
+                    prediction=prediction,
+                    gnomad_result=gnomad_result,
+                    clinvar_data=clinvar_data,
+                    vep_annotation=vep_annotation,
+                    ism_result=ism_result
+                )
+                if acmg_refined:
+                    result["acmg_criteria_refined"] = acmg_refined
+            except Exception as e:
+                logger.warning(f"ACMG LLM refinement failed: {e}")
+        
         # Log completion with performance metrics
         total_duration_ms = (time.perf_counter() - request_start) * 1000
         logger.info(
@@ -1881,6 +1919,290 @@ Remember: Cite sources, be precise, and include the disclaimer. Acknowledge any 
                 f"({very_strong}VS + {strong}S + {moderate}M + {supporting}P)"
             )
         }
+    
+    def _fetch_knowledge_graph(self, gene_symbol: str, ensembl_id: Optional[str] = None) -> dict:
+        """
+        Query Open Targets Platform for gene-disease-drug associations.
+        
+        Returns structured knowledge graph data linking the gene to associated
+        diseases (with MONDO IDs) and known drugs (with clinical trial phases).
+        This provides therapeutic context that no existing VEP tool offers.
+        """
+        import requests as req
+        
+        result = {
+            "gene": gene_symbol,
+            "diseases": [],
+            "drugs": [],
+            "clinical_actionability": None
+        }
+        
+        try:
+            # Use Ensembl ID from VEP if available, otherwise query by symbol
+            if not ensembl_id:
+                # Query Ensembl for gene ID
+                ensembl_url = f"https://rest.ensembl.org/xrefs/symbol/homo_sapiens/{gene_symbol}?content-type=application/json"
+                ensembl_resp = req.get(ensembl_url, timeout=10)
+                if ensembl_resp.status_code == 200:
+                    ensembl_data = ensembl_resp.json()
+                    if ensembl_data and len(ensembl_data) > 0:
+                        ensembl_id = ensembl_data[0].get("id")
+            
+            if not ensembl_id:
+                logger.warning(f"Could not resolve Ensembl ID for {gene_symbol}")
+                return result
+            
+            result["ensembl_id"] = ensembl_id
+            
+            # Query Open Targets for disease associations
+            ot_query = """
+            query targetInfo($ensemblId: String!) {
+              target(ensemblId: $ensemblId) {
+                approvedSymbol
+                associatedDiseases(page: { size: 5, index: 0 }) {
+                  rows {
+                    disease {
+                      id
+                      name
+                    }
+                    score
+                  }
+                }
+                knownDrugs(page: { size: 10, index: 0 }) {
+                  rows {
+                    drug {
+                      name
+                      drugType
+                      maximumClinicalTrialPhase
+                    }
+                    mechanismOfAction
+                  }
+                }
+              }
+            }
+            """
+            
+            ot_url = "https://api.platform.opentargets.org/api/v4/graphql"
+            ot_resp = req.post(
+                ot_url,
+                json={"query": ot_query, "variables": {"ensemblId": ensembl_id}},
+                timeout=15
+            )
+            
+            if ot_resp.status_code == 200:
+                ot_data = ot_resp.json()
+                target = ot_data.get("data", {}).get("target", {})
+                
+                if target:
+                    # Parse diseases
+                    for row in target.get("associatedDiseases", {}).get("rows", []):
+                        disease = row.get("disease", {})
+                        result["diseases"].append({
+                            "id": disease.get("id", ""),
+                            "name": disease.get("name", ""),
+                            "score": round(row.get("score", 0), 3)
+                        })
+                    
+                    # Parse drugs
+                    for row in target.get("knownDrugs", {}).get("rows", []):
+                        drug = row.get("drug", {})
+                        phase = drug.get("maximumClinicalTrialPhase", 0)
+                        phase_label = (
+                            "Approved" if phase >= 4 else
+                            f"Phase {phase}" if phase > 0 else
+                            "Preclinical"
+                        )
+                        result["drugs"].append({
+                            "name": drug.get("name", ""),
+                            "type": drug.get("drugType", "Unknown"),
+                            "phase": phase_label,
+                            "mechanism": row.get("mechanismOfAction", "Unknown")
+                        })
+                    
+                    # Generate clinical actionability summary
+                    if result["diseases"] and result["drugs"]:
+                        top_disease = result["diseases"][0]["name"]
+                        approved_drugs = [d["name"] for d in result["drugs"] if d["phase"] == "Approved"]
+                        if approved_drugs:
+                            result["clinical_actionability"] = (
+                                f"{gene_symbol} pathogenic variants are associated with {top_disease}. "
+                                f"FDA-approved therapies include: {', '.join(approved_drugs[:3])}."
+                            )
+                        else:
+                            result["clinical_actionability"] = (
+                                f"{gene_symbol} pathogenic variants are associated with {top_disease}. "
+                                f"No approved targeted therapies identified."
+                            )
+                    elif result["diseases"]:
+                        result["clinical_actionability"] = (
+                            f"{gene_symbol} is associated with {result['diseases'][0]['name']}. "
+                            f"No drug-target associations found in Open Targets."
+                        )
+            
+            logger.info(f"Knowledge graph: {len(result['diseases'])} diseases, {len(result['drugs'])} drugs for {gene_symbol}")
+            
+        except Exception as e:
+            logger.warning(f"Knowledge graph query failed for {gene_symbol}: {e}")
+        
+        return result
+    
+    def _fetch_external_scores(self, chromosome: str, position: int, reference: str, alternative: str) -> dict:
+        """
+        Fetch CADD scores for multi-tool concordance comparison.
+        
+        CADD (Combined Annotation Dependent Depletion) provides PHRED-scaled
+        scores where >20 indicates likely pathogenic. This enables direct
+        comparison between Evo2 and an established orthogonal method.
+        """
+        result = {
+            "cadd": None,
+            "revel": None,
+            "concordance_note": None
+        }
+        
+        try:
+            import requests as req
+            
+            # Query CADD API
+            cadd_url = "https://cadd.gs.washington.edu/api/v1.0/annotate"
+            cadd_variant = f"{chromosome.replace('chr', '')}-{position}-{reference}-{alternative}"
+            
+            cadd_resp = req.post(
+                cadd_url,
+                json={"variant": cadd_variant, "genome": "GRCh38"},
+                timeout=15
+            )
+            
+            if cadd_resp.status_code == 200:
+                cadd_data = cadd_resp.json()
+                if cadd_data and "PHRED" in cadd_data:
+                    phred = float(cadd_data["PHRED"])
+                    interpretation = (
+                        "Likely Pathogenic" if phred >= 20 else
+                        "Possibly Pathogenic" if phred >= 15 else
+                        "Likely Benign" if phred < 10 else
+                        "Uncertain"
+                    )
+                    result["cadd"] = {
+                        "phred": round(phred, 1),
+                        "raw": round(float(cadd_data.get("rawScore", 0)), 4),
+                        "interpretation": interpretation
+                    }
+                    logger.info(f"CADD score: PHRED={phred} ({interpretation})")
+            
+        except Exception as e:
+            logger.warning(f"External score fetch failed: {e}")
+        
+        return result
+    
+    def _refine_acmg_with_llm(
+        self,
+        gene_symbol: str,
+        variant_str: str,
+        rule_based_acmg: dict,
+        delta_score: float,
+        prediction: str,
+        gnomad_result,
+        clinvar_data,
+        vep_annotation: Optional[dict],
+        ism_result: Optional[dict]
+    ) -> dict:
+        """
+        Use LLM to refine rule-based ACMG criteria mapping.
+        
+        The rule-based system provides deterministic, reproducible criteria.
+        The LLM adds clinical nuance: adjusting strength levels, handling
+        edge cases, and providing narrative justification for each criterion.
+        """
+        api_key = os.getenv("GROQ_API_KEY")
+        if not api_key:
+            return None
+        
+        try:
+            from groq import Groq
+            client = Groq(api_key=api_key)
+            
+            # Build evidence summary for the LLM
+            evidence_lines = [f"VARIANT: {gene_symbol} {variant_str}"]
+            
+            if vep_annotation:
+                evidence_lines.append(f"VEP: {vep_annotation.get('consequence', 'Unknown')} ({vep_annotation.get('impact', 'Unknown')} impact)")
+                if vep_annotation.get('aminoAcids'):
+                    evidence_lines.append(f"Amino Acid Change: {vep_annotation['aminoAcids']}")
+            
+            evidence_lines.append(f"Evo2: Δ = {delta_score:.6f}, {prediction}")
+            
+            if gnomad_result and gnomad_result.allele_frequency is not None:
+                evidence_lines.append(f"gnomAD: AF = {gnomad_result.allele_frequency:.6f}")
+            else:
+                evidence_lines.append("gnomAD: Not found")
+            
+            if clinvar_data and clinvar_data.status not in ("Not Found", "Error", None):
+                evidence_lines.append(f"ClinVar: {clinvar_data.status} ({clinvar_data.num_submitters} submitters)")
+            
+            if ism_result:
+                s = ism_result.get("summary", {})
+                evidence_lines.append(f"ISM: {s.get('constrained_positions', 0)}/{s.get('total_positions_scanned', 0)} positions constrained ({s.get('constraint_zone', 'N/A')} zone)")
+            
+            # Format rule-based criteria
+            criteria_lines = ["RULE-BASED ACMG OUTPUT:"]
+            for code, criterion in rule_based_acmg.get("criteria", {}).items():
+                status = "MET" if criterion["met"] else "NOT MET"
+                strength = f" ({criterion['strength']})" if criterion["strength"] else ""
+                criteria_lines.append(f"  {code}: {status}{strength} — {criterion['rationale']}")
+            
+            evidence_text = "\n".join(evidence_lines)
+            criteria_text = "\n".join(criteria_lines)
+            
+            prompt = f"""You are a clinical geneticist reviewing ACMG/AMP criteria for a variant.
+
+{evidence_text}
+
+{criteria_text}
+
+Please review each criterion and provide:
+1. Confirm or adjust met/not-met status
+2. Adjust strength level if warranted (Very Strong, Strong, Moderate, Supporting)
+3. A 1-2 sentence clinical justification
+4. A final ACMG classification
+
+Return your response as a JSON object with this structure:
+{{
+  "criteria": {{
+    "PVS1": {{"met": true/false, "strength": "Very Strong" or null, "justification": "..."}},
+    ...
+  }},
+  "acmg_classification": "Pathogenic/Likely Pathogenic/VUS/Likely Benign/Benign",
+  "classification_confidence": "High/Medium/Low",
+  "narrative": "2-3 sentence clinical summary of the ACMG classification"
+}}
+
+Only include criteria that are relevant. Be conservative — when evidence is weak, downgrade strength levels."""
+            
+            response = client.chat.completions.create(
+                model="llama-3.3-70b-versatile",
+                messages=[
+                    {"role": "system", "content": "You are an expert clinical geneticist specializing in ACMG/AMP variant classification. You are conservative and evidence-based. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=1500
+            )
+            
+            content = response.choices[0].message.content
+            
+            # Extract JSON from response
+            import re
+            json_match = re.search(r'\{.*\}', content, re.DOTALL)
+            if json_match:
+                refined = json.loads(json_match.group(0))
+                logger.info(f"LLM ACMG refinement: {refined.get('acmg_classification', 'N/A')}")
+                return refined
+            
+        except Exception as e:
+            logger.warning(f"LLM ACMG refinement failed: {e}")
+        
+        return None
     
     @staticmethod
     def _confidence_label(score: float) -> str:

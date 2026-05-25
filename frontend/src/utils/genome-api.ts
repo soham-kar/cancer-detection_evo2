@@ -182,6 +182,58 @@ export interface ACMGCriteriaResult {
   classification_rationale: string;
 }
 
+// ─── Knowledge Graph Types ──────────────────────────────────────────────
+
+export interface KnowledgeGraphDisease {
+  id: string;
+  name: string;
+  score: number;
+}
+
+export interface KnowledgeGraphDrug {
+  name: string;
+  type: string;
+  phase: string;
+  mechanism: string;
+}
+
+export interface KnowledgeGraph {
+  gene: string;
+  ensembl_id?: string;
+  diseases: KnowledgeGraphDisease[];
+  drugs: KnowledgeGraphDrug[];
+  clinical_actionability: string | null;
+}
+
+// ─── External Scores Types ──────────────────────────────────────────────
+
+export interface CADDScore {
+  phred: number;
+  raw: number;
+  interpretation: string;
+}
+
+export interface ExternalScores {
+  cadd: CADDScore | null;
+  revel: null;
+  concordance_note: string | null;
+}
+
+// ─── ACMG Refined Types ─────────────────────────────────────────────────
+
+export interface ACMGRefinedCriterion {
+  met: boolean;
+  strength: string | null;
+  justification: string;
+}
+
+export interface ACMGRefinedResult {
+  criteria: Record<string, ACMGRefinedCriterion>;
+  acmg_classification: string;
+  classification_confidence: string;
+  narrative: string;
+}
+
 export interface AnalysisResult {
   position: number;
   reference: string;
@@ -205,6 +257,12 @@ export interface AnalysisResult {
   counterfactuals?: Counterfactuals | null;
   // ACMG/AMP criteria mapping
   acmg_criteria?: ACMGCriteriaResult | null;
+  // LLM-refined ACMG criteria
+  acmg_criteria_refined?: ACMGRefinedResult | null;
+  // Knowledge graph (gene-disease-drug)
+  knowledge_graph?: KnowledgeGraph | null;
+  // External scores (CADD, REVEL)
+  external_scores?: ExternalScores | null;
   // Legacy raw evidence (for power users)
   clinvar_evidence?: {
     status: string | null;
@@ -621,5 +679,18 @@ export async function analyzeVariantWithAPI({
     evidence_confidence: result.evidence_confidence ?? undefined,
     clinvar_evidence: result.clinvar_evidence ?? null,
     protein_context: result.protein_context ?? null,
+    // ISM scan
+    ism_scan: result.ism_scan ?? null,
+    // XAI factors
+    xai_factors: result.xai_factors ?? null,
+    // Counterfactuals
+    counterfactuals: result.counterfactuals ?? null,
+    // ACMG criteria
+    acmg_criteria: result.acmg_criteria ?? null,
+    acmg_criteria_refined: result.acmg_criteria_refined ?? null,
+    // Knowledge graph
+    knowledge_graph: result.knowledge_graph ?? null,
+    // External scores
+    external_scores: result.external_scores ?? null,
   };
 }
