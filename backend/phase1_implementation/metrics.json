@@ -1,0 +1,50 @@
+{
+  "Evo2": {
+    "auroc": 0.9751,
+    "auprc": 0.9721,
+    "optimal_threshold": 0.000814,
+    "n": 1938,
+    "confusion_matrix": {
+      "tn": 857,
+      "fp": 103,
+      "fn": 38,
+      "tp": 940
+    },
+    "sensitivity": 0.9611,
+    "specificity": 0.8927,
+    "ppv": 0.9012,
+    "npv": 0.9575
+  },
+  "AlphaMissense": {
+    "auroc": 0.9746,
+    "auprc": 0.9832,
+    "optimal_threshold": 0.4233,
+    "n": 403,
+    "confusion_matrix": {
+      "tn": 144,
+      "fp": 15,
+      "fn": 15,
+      "tp": 229
+    },
+    "sensitivity": 0.9385,
+    "specificity": 0.9057,
+    "ppv": 0.9385,
+    "npv": 0.9057
+  },
+  "Consensus": {
+    "auroc": 0.8706,
+    "auprc": 0.8242,
+    "optimal_threshold": 0.000805,
+    "n": 1950,
+    "confusion_matrix": {
+      "tn": 783,
+      "fp": 183,
+      "fn": 21,
+      "tp": 963
+    },
+    "sensitivity": 0.9787,
+    "specificity": 0.8106,
+    "ppv": 0.8403,
+    "npv": 0.9739
+  }
+}

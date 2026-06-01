@@ -1,0 +1,33 @@
+{
+  "CEFN": {
+    "auroc": 0.9106749999999999,
+    "auprc": 0.9302025876993397,
+    "accuracy": 0.78,
+    "vus_rate": 0.5125,
+    "mean_uncertainty": 0.1820085197687149,
+    "n_samples": 800
+  },
+  "baselines": {
+    "Evo2-only": {
+      "auroc": 0.9817288171813228,
+      "auprc": 0.977550906727064,
+      "n": 387
+    },
+    "Simple Average": {
+      "auroc": 0.9692857142857143,
+      "auprc": 0.9866272700674151,
+      "n": 81
+    },
+    "Weighted Avg (0.6/0.4)": {
+      "auroc": 0.9657142857142857,
+      "auprc": 0.9853374232570181,
+      "n": 81
+    }
+  },
+  "training": {
+    "n_params": 19415,
+    "best_epoch": 10,
+    "train_time_seconds": 14.2,
+    "n_epochs_trained": 40
+  }
+}
