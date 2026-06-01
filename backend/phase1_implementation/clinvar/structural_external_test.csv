@@ -1,0 +1,398 @@
+variant_id,label,prediction,delta_score,reference,alphamissense_score
+chr19-41342230-G-A,Pathogenic,Uncertain significance,-0.0034495592117309,G,0.5449
+chr19-35033769-G-A,Conflicting classifications of pathogenicity,Uncertain significance,1.633167266845703e-05,G,
+chr21-46125396-T-C,Benign,Uncertain significance,-8.368492126464844e-05,T,
+chr20-25081963-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0005265474319458,G,0.0838
+chr19-1430304-T-C,Benign,Uncertain significance,0.0001614093780517,T,
+chr22-20733473-G-A,Benign,Uncertain significance,0.0004182457923889,G,
+chr20-35057535-T-G,Uncertain significance,Uncertain significance,-0.0001255869865417,T,0.0706
+chr22-40346693-G-A,Pathogenic,Uncertain significance,-0.0048384666442871,G,
+chr19-50210385-C-A,Pathogenic,Likely pathogenic,-0.010086715221405,C,
+chr22-50722004-G-T,Pathogenic,Likely pathogenic,-0.0082219839096069,G,
+chr19-53801297-G-C,Uncertain significance,Uncertain significance,-0.0003402233123779,G,0.1537
+chr20-19889641-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0027418136596679,C,
+chr20-35503607-T-G,Conflicting classifications of pathogenicity,Uncertain significance,0.0006117224693298,T,0.0661
+chr22-36775675-T-G,Uncertain significance,Uncertain significance,-0.0007045269012451,T,
+chr19-42287310-C-T,Benign,Uncertain significance,-0.0005510449409484,C,
+chr19-18598759-G-C,Benign,Uncertain significance,-0.0001845359802246,G,
+chr22-38120802-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0044513344764709,C,0.9637
+chr21-45493582-G-C,Benign,Uncertain significance,-3.266334533691406e-05,G,
+chr21-45476407-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0002855062484741,G,
+chr19-15188277-A-T,Pathogenic,Uncertain significance,-0.0039878487586975,A,0.998
+chr20-61910486-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0013661384582519,G,0.1072
+chr20-62164122-C-G,Benign,Uncertain significance,0.0002017617225646,C,
+chr19-55227354-C-T,Uncertain significance,Uncertain significance,0.0002404451370239,C,0.1445
+chr22-30939582-C-T,Benign,Uncertain significance,0.0004892349243164,C,
+chr22-20764841-G-A,Uncertain significance,Uncertain significance,-0.0044810771942138,G,0.9976
+chr21-44292284-T-C,Benign,Uncertain significance,-0.000118613243103,T,
+chr22-44093956-T-A,Uncertain significance,Uncertain significance,-0.0011239051818847,T,0.2774
+chr19-44703362-T-C,Benign,Uncertain significance,-0.0002167224884033,T,
+chr20-50958505-T-C,Uncertain significance,Uncertain significance,-9.447336196899414e-05,T,0.0847
+chr20-63697155-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0004280805587768,G,0.0655
+chr19-8147179-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0008106231689453,C,0.3016
+chr19-18080977-G-C,Pathogenic,Uncertain significance,-0.0068442821502685,G,
+chr20-18510870-A-T,Uncertain significance,Uncertain significance,-0.0047147274017333,A,0.9642
+chr21-34887019-C-G,Uncertain significance,Uncertain significance,-0.0010207891464233,C,0.5955
+chr19-918632-C-T,Benign,Uncertain significance,-0.0003087520599365,C,
+chr19-45584676-G-A,Uncertain significance,Uncertain significance,-0.0014464259147644,G,0.3444
+chr19-38561412-C-G,Pathogenic,Uncertain significance,-0.0031347274780273,C,0.9997
+chr19-17341078-G-C,Pathogenic,Uncertain significance,-0.0055212974548339,G,0.5838
+chr19-35739294-C-A,Uncertain significance,Uncertain significance,-0.0005989074707031,C,0.0904
+chr22-19474943-C-G,Benign,Uncertain significance,0.0001274347305297,C,
+chr21-45456392-G-A,Benign,Uncertain significance,-1.1205673217773438e-05,G,0.0688
+chr20-9476523-C-T,Benign,Uncertain significance,-6.449222564697266e-05,C,
+chr21-34370500-A-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0005667209625244,A,0.3525
+chr19-13241478-G-A,Benign,Uncertain significance,-0.0001908540725708,G,
+chr22-38112521-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.00033700466156,G,
+chr22-19242842-T-C,Benign,Uncertain significance,-0.0005946159362792,T,0.0657
+chr21-41859090-C-A,Uncertain significance,Uncertain significance,-2.062320709228516e-05,C,0.1712
+chr21-46191885-G-A,Benign,Uncertain significance,-0.0017089247703552,G,0.1196
+chr22-20061931-A-G,Benign,Uncertain significance,-0.0002438426017761,A,
+chr20-25308438-G-A,Benign,Uncertain significance,-0.000279426574707,G,
+chr19-58511507-G-C,Uncertain significance,Uncertain significance,-0.0002152919769287,G,0.093
+chr20-32802436-C-T,Pathogenic,Likely pathogenic,-0.0117583274841308,C,
+chr19-35033599-A-T,Pathogenic,Uncertain significance,-0.0045727491378784,A,0.9881
+chr20-21162379-C-A,Benign,Uncertain significance,-0.0040866136550903,C,0.3429
+chr19-12897302-G-C,Pathogenic,Likely pathogenic,-0.0075005888938903,G,
+chr22-31838920-G-A,Benign,Uncertain significance,-2.5033950805664062e-05,G,
+chr19-38455211-T-C,Benign,Uncertain significance,-0.0001088380813598,T,
+chr21-46270420-A-C,Pathogenic,Likely pathogenic,-0.0268052816390991,A,
+chr21-46125484-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0001837015151977,C,
+chr19-7113593-T-C,Benign,Uncertain significance,-0.0002815723419189,T,
+chr19-53805300-C-C,Benign,Uncertain significance,0.0,C,
+chr20-58450417-C-T,Benign,Uncertain significance,0.0003027915954589,C,
+chr19-12658469-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-6.16312026977539e-05,G,
+chr19-18080980-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0005224347114562,G,
+chr21-46411552-G-A,Uncertain significance,Uncertain significance,-0.0002158284187316,G,0.1172
+chr19-35842293-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0001099109649658,G,
+chr22-20043417-G-A,Pathogenic,Uncertain significance,-0.0017881393432617,G,
+chr22-25768301-C-T,Pathogenic,Uncertain significance,-0.0050773620605468,C,
+chr20-44419790-T-C,Pathogenic,Uncertain significance,-0.0060504078865051,T,0.9947
+chr20-34994330-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0015913248062133,C,0.1934
+chr19-17268749-C-T,Benign,Uncertain significance,-0.0001537799835205,C,
+chr19-48414884-G-C,Uncertain significance,Uncertain significance,-0.0023004412651062,G,0.1442
+chr21-46427691-G-T,Pathogenic,Uncertain significance,-0.0067527294158935,G,
+chr19-4123616-T-C,Benign,Uncertain significance,0.0003095269203186,T,
+chr19-17834989-T-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0028082728385925,T,0.83
+chr22-45525987-G-C,Benign,Uncertain significance,4.8160552978515625e-05,G,
+chr22-20996760-C-T,Pathogenic,Uncertain significance,-0.0022031068801879,C,
+chr22-23767098-G-A,Benign,Uncertain significance,-0.0002866983413696,G,
+chr22-41527419-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0002727508544921,C,
+chr19-49881445-G-A,Uncertain significance,Uncertain significance,-0.0005521178245544,G,0.0955
+chr22-36326605-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0007119178771972,G,0.9155
+chr20-13801528-A-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0008636713027954,A,0.0774
+chr21-45269929-T-G,Uncertain significance,Uncertain significance,-0.001406192779541,T,0.8228
+chr22-37723778-C-T,Pathogenic,Uncertain significance,-0.0021920204162597,C,
+chr20-38139584-C-T,Benign,Uncertain significance,0.0001133680343627,C,
+chr19-15424813-C-T,Uncertain significance,Uncertain significance,-0.0022051334381103,C,
+chr22-50722255-G-A,Pathogenic,Likely pathogenic,-0.0136597156524658,G,
+chr22-36349164-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0018292069435119,C,0.4188
+chr19-38452790-C-T,Benign,Uncertain significance,-0.0002845525741577,C,
+chr21-34834498-G-A,Uncertain significance,Uncertain significance,-0.0002515316009521,G,
+chr22-50627374-C-T,Pathogenic,Uncertain significance,-0.0008053183555603,C,
+chr19-29702776-A-T,Pathogenic,ERROR,,,0.9052
+chr19-15192118-C-G,Pathogenic,ERROR,,,0.9804
+chr21-46117455-T-C,Pathogenic,ERROR,,,
+chr19-18856912-C-T,Benign,Uncertain significance,1.1205673217773438e-05,C,
+chr20-63444697-A-T,Pathogenic,Uncertain significance,-0.0030360221862792,A,0.9998
+chr20-45425618-C-T,Uncertain significance,Uncertain significance,-0.001219630241394,C,0.557
+chr22-26470745-G-A,Conflicting classifications of pathogenicity,Uncertain significance,0.0002297163009643,G,
+chr19-8118987-G-A,Benign,Uncertain significance,-0.001104712486267,G,0.0909
+chr22-39640945-C-T,Benign,Uncertain significance,1.5854835510253906e-05,C,
+chr21-32316888-G-C,Benign,Uncertain significance,-0.0015342235565185,G,0.0994
+chr19-4323053-C-T,Benign,Uncertain significance,0.0002589225769042,C,
+chr20-62831857-C-T,Benign,Uncertain significance,0.0002840757369995,C,
+chr19-3196261-T-G,Uncertain significance,Uncertain significance,-0.0025215148925781,T,0.1063
+chr20-46035010-G-T,Pathogenic,Uncertain significance,-0.0031839609146118,G,
+chr21-43053960-G-T,Conflicting classifications of pathogenicity,Uncertain significance,0.0002453923225402,G,0.0534
+chr19-49190716-C-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0004370808601379,C,0.0802
+chr22-46356972-C-T,Uncertain significance,Uncertain significance,-0.0006959438323974,C,0.0698
+chr22-23793689-G-A,Pathogenic,Uncertain significance,-0.0023905634880065,G,
+chr21-44287139-C-G,Uncertain significance,Uncertain significance,-0.0001734495162963,C,
+chr22-20824176-G-A,Benign,Uncertain significance,3.1948089599609375e-05,G,
+chr19-6712628-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0003012418746948,G,
+chr21-25891789-A-G,Pathogenic,Uncertain significance,-0.0012033581733703,A,0.802
+chr20-25418130-G-C,Uncertain significance,Uncertain significance,-0.0015217065811157,G,0.8928
+chr19-18788237-T-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.0012065172195434,T,0.9687
+chr20-37207447-C-T,Uncertain significance,Uncertain significance,-0.002196192741394,C,0.1426
+chr19-54454634-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0050903558731079,G,0.493
+chr19-38515108-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.002748966217041,G,
+chr19-39173366-G-A,Uncertain significance,Uncertain significance,-0.0007920861244201,G,0.0863
+chr22-36253920-C-T,Benign,Uncertain significance,0.0002298355102539,C,
+chr19-855693-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0003487467765808,G,0.263
+chr21-46267104-G-C,Pathogenic,Uncertain significance,-0.0043771266937255,G,
+chr19-10986185-G-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0002328157424926,G,
+chr22-25761350-G-C,Benign,Uncertain significance,0.000171422958374,G,
+chr19-45548657-T-A,Benign,Uncertain significance,8.153915405273438e-05,T,
+chr22-50218415-A-G,Benign,Uncertain significance,0.0002124905586242,A,
+chr21-46001369-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.002315878868103,C,0.2427
+chr19-35737843-T-A,Benign,Uncertain significance,6.443262100219727e-05,T,
+chr20-19965221-G-T,Benign,Uncertain significance,0.0001900196075439,G,
+chr19-7529273-G-A,Benign,Uncertain significance,2.408027648925781e-05,G,
+chr19-43508034-C-A,Pathogenic,Uncertain significance,-0.004374623298645,C,
+chr19-38918018-A-G,Uncertain significance,Uncertain significance,-0.0002031326293945,A,
+chr22-41209772-G-C,Benign,Uncertain significance,-0.003383994102478,G,0.172
+chr19-18083454-C-T,Benign,Uncertain significance,-0.0021994709968566,C,
+chr22-17114856-C-T,Benign,Uncertain significance,-8.559226989746094e-05,C,
+chr19-35302686-C-T,Benign,Uncertain significance,2.8073787689208984e-05,C,
+chr21-43066348-C-T,Pathogenic,Uncertain significance,-0.0020962953567504,C,0.9567
+chr22-25768446-C-T,Benign,ERROR,,,0.0665
+chr22-19880705-G-A,Benign,ERROR,,,
+chr20-35947533-C-T,Uncertain significance,Uncertain significance,-0.0065756440162658,C,0.9232
+chr19-44907908-G-C,Uncertain significance,Uncertain significance,-0.0009275674819946,G,0.2679
+chr21-45509651-C-T,Benign,Uncertain significance,-0.0001506805419921,C,
+chr21-32639703-T-C,Uncertain significance,Uncertain significance,-0.00114107131958,T,
+chr19-47702156-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0010294914245605,G,0.1918
+chr21-46124915-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0011482238769531,C,0.6731
+chr22-50526474-C-G,Pathogenic,Uncertain significance,-0.0020656585693359,C,0.8344
+chr22-28699923-T-C,Uncertain significance,Uncertain significance,-0.0013726949691772,T,0.9661
+chr19-49166154-A-G,Uncertain significance,Uncertain significance,-0.0032266974449157,A,0.4827
+chr22-46535350-C-T,Benign,Uncertain significance,-5.143880844116211e-05,C,
+chr19-6495961-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.001070499420166,C,0.9893
+chr22-18913477-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0021165609359741,G,
+chr22-19359312-G-A,Benign,Uncertain significance,0.0003777742385864,G,
+chr21-42482664-T-C,Benign,Uncertain significance,-0.0002903938293457,T,
+chr20-62315711-A-C,Benign,Uncertain significance,-0.0001587867736816,A,
+chr20-2417499-C-T,Uncertain significance,Uncertain significance,-0.0021427273750305,C,0.6634
+chr22-42211717-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0002795755863189,G,0.0975
+chr22-38113432-C-T,Benign,Uncertain significance,-0.0002949833869934,C,
+chr21-42376543-G-A,Pathogenic,Uncertain significance,-0.0014779567718505,G,
+chr19-16480884-G-A,Benign,Uncertain significance,-6.67572021484375e-05,G,
+chr19-15179079-A-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.0057476758956909,A,0.9193
+chr20-13808601-A-G,Benign,Uncertain significance,0.0001254081726074,A,
+chr19-37738788-G-A,Uncertain significance,Uncertain significance,-0.0024745464324951,G,0.3593
+chr22-40417468-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0003155469894409,G,0.0729
+chr19-33301883-G-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.0012726783752441,G,0.14
+chr19-7935219-A-G,Benign,Uncertain significance,0.0005539655685424,A,
+chr22-28773732-G-C,Uncertain significance,Uncertain significance,-0.000623881816864,G,0.1167
+chr19-17626626-A-G,Benign,Uncertain significance,-0.0002248287200927,A,
+chr19-13253021-A-C,Uncertain significance,Uncertain significance,-0.0052642226219177,A,0.9943
+chr19-42289325-C-T,Pathogenic,Likely pathogenic,-0.0095885396003723,C,
+chr22-29639145-A-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0009033679962158,A,0.2312
+chr20-46560194-C-T,Uncertain significance,Uncertain significance,-0.0009856224060058,C,0.1101
+chr19-7535950-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0005364418029785,C,
+chr20-50893580-A-G,Benign,Uncertain significance,0.0001987218856811,A,
+chr20-2467941-G-T,Benign,Uncertain significance,0.0002259016036987,G,
+chr20-59915501-C-T,Uncertain significance,Uncertain significance,-0.0004520416259765,C,0.1125
+chr20-3231577-A-T,Benign,Uncertain significance,4.470348358154297e-05,A,
+chr22-45549071-C-A,Benign,Uncertain significance,0.0004884004592895,C,
+chr20-63413479-C-G,Pathogenic,Uncertain significance,-0.0007627010345458,C,0.9996
+chr19-5719985-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0001527070999145,G,0.059
+chr22-50627329-C-A,Pathogenic,Uncertain significance,-0.0019917488098144,C,
+chr22-17182620-C-T,Pathogenic,Uncertain significance,-0.0045254826545715,C,0.8912
+chr20-3147861-G-A,Pathogenic,Uncertain significance,-0.0004389286041259,G,0.2255
+chr19-55159311-T-G,Conflicting classifications of pathogenicity,Uncertain significance,0.0001138448715209,T,0.0682
+chr19-44812319-C-T,Pathogenic,Uncertain significance,-0.0011765956878662,C,
+chr19-50417273-T-C,Uncertain significance,Uncertain significance,0.0001177787780761,T,
+chr19-10365880-C-T,Conflicting classifications of pathogenicity,Uncertain significance,0.0001913905143737,C,
+chr19-13506022-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0020892620086669,C,0.837
+chr19-8096554-C-T,Conflicting classifications of pathogenicity,Uncertain significance,0.0004984140396118,C,0.0597
+chr22-26027618-A-G,Benign,Uncertain significance,3.5643577575683594e-05,A,
+chr21-33555124-C-T,Benign,Uncertain significance,-0.001549482345581,C,0.9241
+chr19-1221320-C-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0004286766052246,C,0.1893
+chr19-1496589-A-T,Pathogenic,Uncertain significance,-0.003900408744812,A,
+chr22-20990515-A-T,Pathogenic,Uncertain significance,-0.0029013156890869,A,
+chr19-51341366-G-A,Uncertain significance,Uncertain significance,-0.0009889602661132,G,0.1631
+chr19-5784398-C-T,Uncertain significance,Uncertain significance,-0.0005328655242919,C,0.1651
+chr20-6079504-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0013591051101684,C,0.1887
+chr21-45989102-G-A,Pathogenic,Uncertain significance,-0.0027751922607421,G,0.9832
+chr20-53254216-C-A,Uncertain significance,Uncertain significance,-0.001549482345581,C,0.1908
+chr19-19186053-T-G,Pathogenic,Uncertain significance,-0.0044872164726257,T,0.9311
+chr20-35466146-G-A,Pathogenic,Uncertain significance,-0.0066159963607788,G,
+chr19-13025328-G-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.002601146697998,G,0.9996
+chr20-10658662-C-T,Pathogenic,Uncertain significance,-0.0024542808532714,C,
+chr19-15174461-T-C,Benign,Uncertain significance,9.614229202270508e-05,T,
+chr19-7150407-C-G,Benign,Uncertain significance,-0.000230073928833,C,
+chr22-23311693-G-A,Benign,Uncertain significance,-1.2755393981933594e-05,G,
+chr19-15188261-T-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.0008313655853271,T,0.1084
+chr19-38475353-C-A,Uncertain significance,Uncertain significance,-0.0016547441482543,C,0.1079
+chr19-35562505-A-C,Uncertain significance,Uncertain significance,-0.0027210712432861,A,0.2991
+chr20-63695534-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-6.29425048828125e-05,G,
+chr19-50481877-G-C,Uncertain significance,Uncertain significance,-0.0033768415451049,G,
+chr20-47664166-C-T,Benign,Uncertain significance,-0.0014612674713134,C,0.0776
+chr22-26458442-T-C,Uncertain significance,Uncertain significance,0.0003778934478759,T,
+chr19-35826553-G-A,Conflicting classifications of pathogenicity,Uncertain significance,0.0002672672271728,G,
+chr22-33384300-C-G,Benign,Uncertain significance,-0.0004749298095703,C,
+chr22-50218766-G-T,Pathogenic,Uncertain significance,-0.0025944709777832,G,
+chr21-46126079-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0010091066360473,C,0.1025
+chr19-35907724-G-A,Uncertain significance,Uncertain significance,-0.0002148747444152,G,
+chr22-29697935-A-G,Conflicting classifications of pathogenicity,Uncertain significance,-3.7550926208496094e-05,A,
+chr19-7530384-C-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0004349946975708,C,
+chr22-50626676-C-G,Pathogenic,Uncertain significance,-0.0033370852470397,C,
+chr22-30613039-A-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0003800392150878,A,0.1189
+chr19-57909937-T-C,Uncertain significance,Uncertain significance,-0.0008403062820434,T,0.0713
+chr19-50413827-C-T,Uncertain significance,Uncertain significance,-0.0017499923706054,C,0.9697
+chr19-11116156-T-G,Uncertain significance,Uncertain significance,-0.0018297433853149,T,0.195
+chr20-3083171-G-A,Uncertain significance,Uncertain significance,-0.0008488297462463,G,0.1564
+chr19-17839865-C-T,Benign,ERROR,,,
+chr19-35845393-G-A,Uncertain significance,Uncertain significance,-0.0018762350082397,G,
+chr22-50695080-T-G,Benign,Uncertain significance,3.5822391510009766e-05,T,
+chr21-44527316-C-T,Pathogenic,Likely pathogenic,-0.0088284611701965,C,
+chr19-2431615-T-G,Uncertain significance,Uncertain significance,-0.001291275024414,T,0.1076
+chr19-45553834-C-A,Uncertain significance,Uncertain significance,-0.0017773509025573,C,
+chr19-56441833-A-G,Uncertain significance,Uncertain significance,-0.0008805990219116,A,0.8799
+chr20-3748271-G-A,Uncertain significance,Uncertain significance,-0.0009408593177795,G,0.9987
+chr22-42693394-G-A,Benign,Uncertain significance,-9.137392044067384e-05,G,
+chr21-46126063-C-T,Uncertain significance,Uncertain significance,-0.0014185905456542,C,0.1758
+chr20-63439693-T-A,Pathogenic,Uncertain significance,-0.0016718506813049,T,0.9882
+chr19-11116910-C-A,Pathogenic,Uncertain significance,-0.0025641918182373,C,
+chr22-33316116-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.000727891921997,C,0.0829
+chr20-63695178-G-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0002045631408691,G,0.069
+chr22-19765069-G-T,Pathogenic,Likely pathogenic,-0.0088319778442382,G,
+chr19-53874179-C-T,Uncertain significance,Uncertain significance,-0.0011098980903625,C,0.6017
+chr22-26625225-A-G,Benign,Uncertain significance,-5.161762237548828e-05,A,
+chr20-3560815-A-T,Benign,Uncertain significance,-0.0009410381317138,A,0.0902
+chr19-1257129-C-T,Uncertain significance,ERROR,,,0.3419
+chr20-2403790-G-A,Conflicting classifications of pathogenicity,ERROR,,,0.0856
+chr22-49903853-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0002553462982177,G,
+chr20-2462717-G-A,Benign,Uncertain significance,-0.0009533166885375,G,0.2354
+chr19-7125508-G-A,Benign,Uncertain significance,-0.0007803440093994,G,
+chr19-10996498-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0003938674926757,C,0.0723
+chr20-62338071-A-G,Benign,Uncertain significance,4.2378902435302734e-05,A,
+chr19-11214553-C-T,Benign,Uncertain significance,-0.0008227229118347,C,
+chr22-19972823-G-C,Uncertain significance,Uncertain significance,-0.0004376173019409,G,0.0827
+chr19-36104768-T-A,Conflicting classifications of pathogenicity,Uncertain significance,0.0004928112030029,T,0.0877
+chr22-26468763-A-G,Benign,Uncertain significance,-5.173683166503906e-05,A,
+chr19-40692182-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0003635883331298,G,
+chr19-22758383-C-T,Uncertain significance,Uncertain significance,5.2988529205322266e-05,C,0.1016
+chr20-51790114-G-C,Uncertain significance,Uncertain significance,-0.0040055513381958,G,0.3715
+chr19-6374490-T-C,Uncertain significance,Uncertain significance,-0.0036413073539733,T,0.9605
+chr20-63496030-C-A,Benign,Uncertain significance,-0.0006607770919799,C,
+chr22-38112165-G-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.0021103620529174,G,0.137
+chr20-17975882-T-C,Uncertain significance,Uncertain significance,-0.004021942615509,T,0.7412
+chr19-38584971-T-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.005807876586914,T,0.9701
+chr21-26170731-C-G,Benign,Uncertain significance,-1.6570091247558594e-05,C,
+chr19-54128303-A-G,Pathogenic,Uncertain significance,-0.0059482455253601,A,
+chr19-33521759-A-C,Pathogenic,Uncertain significance,-0.0017776489257812,A,
+chr21-34791195-C-T,Benign,Uncertain significance,0.0003008842468261,C,
+chr22-40909148-C-T,Conflicting classifications of pathogenicity,Uncertain significance,0.0002374053001403,C,
+chr19-13768600-A-G,Uncertain significance,Uncertain significance,-0.0003482103347778,A,0.0725
+chr21-31659788-T-A,Pathogenic,Uncertain significance,-0.0052393674850463,T,0.6933
+chr19-46756565-T-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0020375251770019,T,0.4358
+chr19-38723917-C-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0001921653747558,C,
+chr20-35466039-G-A,Uncertain significance,Uncertain significance,-0.0043062567710876,G,
+chr22-29490659-C-A,Uncertain significance,Uncertain significance,-0.0008721947669982,C,
+chr20-32435890-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.001618206501007,G,0.0847
+chr19-38565447-C-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0001256465911865,C,
+chr19-11238250-G-A,Benign,Uncertain significance,0.0001599788665771,G,
+chr20-10640828-C-T,Conflicting classifications of pathogenicity,ERROR,,,0.0913
+chr19-55015005-G-C,Benign,ERROR,,,
+chr20-21397011-C-T,Uncertain significance,Uncertain significance,-0.0023696422576904,C,0.495
+chr21-31124502-C-T,Benign,Uncertain significance,3.147125244140625e-05,C,
+chr20-20196645-G-A,Pathogenic,Uncertain significance,2.5510787963867188e-05,G,0.9096
+chr22-35416388-C-T,Pathogenic,Uncertain significance,-0.0012140870094299,C,0.9957
+chr20-35000433-G-A,Uncertain significance,Uncertain significance,-0.0009231567382812,G,0.1205
+chr19-38917446-T-C,Benign,Uncertain significance,-0.0002339482307434,T,
+chr19-12813343-C-T,Benign,Uncertain significance,-0.0002787113189697,C,
+chr20-33757243-C-T,Benign,Uncertain significance,0.0004372596740722,C,
+chr21-46402473-C-T,Uncertain significance,Uncertain significance,0.0001636147499084,C,0.1091
+chr22-37128446-C-T,Uncertain significance,Uncertain significance,0.0003132820129394,C,0.083
+chr20-36917034-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0008553266525268,G,0.7209
+chr22-31843169-A-G,Uncertain significance,Uncertain significance,-0.0019230842590332,A,0.0838
+chr21-33266554-G-A,Benign,Uncertain significance,-0.0001910924911499,G,
+chr19-1218501-A-G,Pathogenic,Uncertain significance,-0.0016891360282897,A,
+chr22-41147896-C-T,Conflicting classifications of pathogenicity,Uncertain significance,0.0005567073822021,C,0.0612
+chr19-43776357-G-T,Benign,Uncertain significance,-0.0002634525299072,G,
+chr20-62837219-T-C,Benign,Uncertain significance,-0.000117540359497,T,
+chr20-62836712-G-A,Benign,Uncertain significance,0.0001179575920104,G,
+chr19-5694418-G-A,Benign,Uncertain significance,-0.0001170635223388,G,
+chr19-55455078-G-A,Uncertain significance,Uncertain significance,-0.0026286244392395,G,0.4946
+chr19-50278107-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0021347403526306,C,0.4481
+chr20-36185318-G-A,Benign,Uncertain significance,-0.000403881072998,G,
+chr19-54465398-G-C,Uncertain significance,Uncertain significance,-0.0017013549804687,G,0.7779
+chr22-20992369-G-C,Conflicting classifications of pathogenicity,Likely pathogenic,-0.008053183555603,G,0.2016
+chr19-652270-G-A,Uncertain significance,Uncertain significance,-0.0016199946403503,G,0.1295
+chr19-35907461-G-A,Pathogenic,Uncertain significance,-0.0047146677970886,G,
+chr22-50198467-T-C,Uncertain significance,Uncertain significance,-0.0031463503837585,T,0.2626
+chr22-30937879-C-A,Uncertain significance,Uncertain significance,-0.001651644706726,C,0.995
+chr19-15257281-G-A,Benign,Uncertain significance,3.3855438232421875e-05,G,
+chr21-45477307-C-T,Benign,Uncertain significance,-0.0002673864364624,C,
+chr22-38294356-C-T,Uncertain significance,Uncertain significance,-0.0011463165283203,C,0.1226
+chr19-12899706-A-G,Benign,Uncertain significance,-0.0008670091629028,A,
+chr20-38213437-G-A,Benign,Uncertain significance,-0.0003840923309326,G,
+chr19-35732353-C-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0020256638526916,C,0.0865
+chr19-18786136-C-T,Pathogenic,Uncertain significance,-0.0010951161384582,C,0.9268
+chr22-28725057-T-C,Uncertain significance,Uncertain significance,-0.0034012794494628,T,0.2772
+chr22-35412617-A-C,Uncertain significance,Uncertain significance,-0.001612365245819,A,0.6073
+chr21-29588887-C-A,Uncertain significance,Uncertain significance,-0.0010935068130493,C,0.6286
+chr19-11214741-A-G,Benign,Uncertain significance,-0.0001628398895263,A,
+chr22-20990475-C-A,Uncertain significance,Uncertain significance,-0.0013276934623718,C,0.9988
+chr19-11021869-C-T,Pathogenic,Uncertain significance,-0.0013277530670166,C,0.9941
+chr20-62346614-G-A,Benign,Uncertain significance,1.0132789611816406e-06,G,
+chr22-42619710-T-C,Benign,Uncertain significance,-0.0001718997955322,T,
+chr22-31783957-C-G,Uncertain significance,Uncertain significance,-0.0062054395675659,C,0.9996
+chr19-1221305-G-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0018397569656372,G,0.1014
+chr19-13025340-G-C,Pathogenic,Uncertain significance,-0.0036312341690063,G,0.9994
+chr20-49373333-C-T,Benign,Uncertain significance,-0.0007487535476684,C,0.0735
+chr20-2860131-A-C,Uncertain significance,Uncertain significance,-0.0010236501693725,A,0.0745
+chr20-45893215-C-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0007681846618652,C,
+chr19-12661449-T-C,Benign,Uncertain significance,8.243322372436523e-05,T,
+chr20-63442405-C-A,Pathogenic,Likely pathogenic,-0.0081925392150878,C,
+chr22-37725104-C-T,Pathogenic,Uncertain significance,-0.0037646889686584,C,
+chr19-41879233-T-G,Pathogenic,Uncertain significance,-0.0015743970870971,T,0.522
+chr19-1206865-A-C,Benign,Uncertain significance,8.690357208251953e-05,A,
+chr21-46112016-G-A,Uncertain significance,Uncertain significance,-0.0007556080818176,G,
+chr22-50084725-C-A,Conflicting classifications of pathogenicity,Likely pathogenic,-0.0165684223175048,C,
+chr20-32434579-C-T,Pathogenic,Likely pathogenic,-0.0173880457878112,C,
+chr19-13261528-G-A,Pathogenic,Uncertain significance,-0.0012488365173339,G,0.9944
+chr20-57561954-C-G,Benign,Uncertain significance,-8.416175842285156e-05,C,
+chr21-44890060-G-A,Conflicting classifications of pathogenicity,Uncertain significance,8.654594421386719e-05,G,
+chr20-63350302-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0004047155380249,C,0.0996
+chr19-38575718-G-A,Benign,Uncertain significance,-0.0001288056373596,G,
+chr20-35669741-A-C,Benign,Uncertain significance,0.0005765557289123,A,
+chr19-3984414-G-A,Benign,Uncertain significance,0.0005781650543212,G,
+chr21-36990231-T-C,Benign,Uncertain significance,-2.6404857635498047e-05,T,
+chr19-55146713-G-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.000253140926361,G,
+chr21-46399780-T-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0026906132698059,T,0.1953
+chr22-31621315-C-G,Benign,Uncertain significance,4.291534423828125e-05,C,
+chr22-32091673-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0005512833595275,C,
+chr19-35727223-C-T,Benign,Uncertain significance,0.0003924965858459,C,
+chr19-52416670-A-T,Uncertain significance,Uncertain significance,-0.0007534027099609,A,0.4221
+chr20-18481777-A-G,Benign,ERROR,,,
+chr19-1467464-C-T,Uncertain significance,ERROR,,,0.3842
+chr19-1119106-C-T,Uncertain significance,Uncertain significance,-0.0005849599838256,C,0.7609
+chr19-10162649-G-A,Benign,Uncertain significance,-0.000137448310852,G,
+chr19-55661159-C-T,Benign,Uncertain significance,-0.0002350807189941,C,
+chr19-11192903-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0001489520072937,C,0.0635
+chr19-17328815-G-A,Uncertain significance,Uncertain significance,-0.0010024905204772,G,0.1164
+chr19-13231738-A-G,Uncertain significance,Uncertain significance,-0.0013815760612487,A,0.9652
+chr22-29260206-T-C,Uncertain significance,Uncertain significance,-0.000386893749237,T,0.1335
+chr22-39235542-T-C,Benign,Uncertain significance,-5.066394805908203e-05,T,
+chr19-44118485-A-G,Uncertain significance,Uncertain significance,-0.0004948377609252,A,0.098
+chr19-54983463-G-T,Conflicting classifications of pathogenicity,Uncertain significance,0.0001688003540039,G,0.1166
+chr20-34758032-G-C,Benign,Uncertain significance,-0.0028464794158935,G,0.232
+chr19-11105315-G-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.0032010078430175,G,0.8912
+chr22-20994203-G-T,Pathogenic,Uncertain significance,-0.0030081272125244,G,
+chr20-44651574-C-G,Pathogenic,Uncertain significance,-0.0017375946044921,C,
+chr19-45419100-C-A,Uncertain significance,Uncertain significance,-0.000472605228424,C,0.5662
+chr22-32084587-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-1.7523765563964844e-05,G,
+chr22-29695522-G-A,Benign,Uncertain significance,0.0002869367599487,G,
+chr19-36393850-G-T,Uncertain significance,Uncertain significance,-0.0012170672416687,G,0.0868
+chr19-38485777-G-A,Uncertain significance,Uncertain significance,-0.0005228519439697,G,0.1017
+chr20-19996632-G-A,Benign,Uncertain significance,-0.0021167993545532,G,
+chr19-15239743-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0033008456230163,G,0.3494
+chr22-36864973-C-T,Conflicting classifications of pathogenicity,Uncertain significance,-0.004084825515747,C,0.7396
+chr19-32881908-G-A,Benign,Uncertain significance,-0.0005556344985961,G,0.1426
+chr19-10449102-T-C,Uncertain significance,Uncertain significance,-0.0023025870323181,T,0.9855
+chr19-53892633-G-T,Benign,Uncertain significance,-0.0007635354995727,G,0.1559
+chr22-20887675-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0004433989524841,G,
+chr20-46726244-G-A,Conflicting classifications of pathogenicity,Uncertain significance,0.0001593232154846,G,0.0644
+chr21-32638958-G-A,Pathogenic,Likely pathogenic,-0.0107605457305908,G,
+chr19-11113379-G-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.0014485120773315,G,0.6118
+chr22-46337798-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0002433061599731,G,
+chr20-44625626-C-A,Pathogenic,Uncertain significance,-0.0020140409469604,C,
+chr20-23637679-T-G,Uncertain significance,Uncertain significance,-0.0001170635223388,T,0.2434
+chr21-43064922-T-G,Benign,Uncertain significance,6.985664367675781e-05,T,
+chr20-38241046-G-A,Uncertain significance,Uncertain significance,0.0001329183578491,G,0.0883
+chr22-29825220-G-A,Uncertain significance,Uncertain significance,-0.0048173666000366,G,0.7991
+chr20-50942029-A-G,Conflicting classifications of pathogenicity,Uncertain significance,-0.0023850798606872,A,
+chr19-15807690-G-A,Benign,Uncertain significance,-0.0003994703292846,G,
+chr22-20976922-G-A,Uncertain significance,Uncertain significance,-0.0004867911338806,G,0.1128
+chr19-1207021-C-A,Pathogenic,Uncertain significance,-0.0021606683731079,C,
+chr20-41084548-A-G,Benign,Uncertain significance,-0.0001924037933349,A,
+chr19-4941623-T-C,Conflicting classifications of pathogenicity,Uncertain significance,-0.0010434389114379,T,0.1031
+chr20-63495910-G-A,Conflicting classifications of pathogenicity,Uncertain significance,-0.0001177787780761,G,
+chr22-36265845-G-A,Benign,Uncertain significance,0.0002698898315429,G,0.1076
+chr19-1220514-G-T,Conflicting classifications of pathogenicity,Uncertain significance,2.9802322387695312e-05,G,
+chr20-58891729-G-A,Pathogenic,Uncertain significance,-0.0068669319152832,G,
+chr19-8932740-G-A,Benign,Uncertain significance,-9.971857070922852e-05,G,
