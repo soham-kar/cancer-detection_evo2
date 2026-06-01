@@ -374,6 +374,77 @@ def figure_3_calibration(model, test_df):
 
 
 # =============================================================================
+# Figure 4: VUS Rate by Variant Type
+# =============================================================================
+def figure_4_vus(model, test_df):
+    predictor_ids = torch.arange(N_PREDICTORS)
+    int_labels, int_prob, int_preds = get_predictions(model, test_df, predictor_ids)
+
+    # Compute VUS rate per variant type on ALL test variants (including VUS-labeled)
+    # Need predictions for all variants, not just binary
+    vt_cols = [f"vt_{vt}" for vt in VARTYPE_COLS]
+    scores_all = test_df[PREDICTOR_COLS].fillna(0).values.astype(np.float32)
+    mask_all = test_df[PREDICTOR_COLS].notna().values.astype(np.float32)
+    vartype_all = test_df[vt_cols].values.astype(np.float32)
+
+    with torch.no_grad():
+        s_t = torch.tensor(scores_all)
+        m_t = torch.tensor(mask_all)
+        vt_t = torch.tensor(vartype_all)
+        aP, aB, aV = model(s_t, m_t, predictor_ids, vt_t)
+        preds_all, _, _ = predict_class(aP, aB, aV, threshold=0.5)
+        preds_all = preds_all.numpy()
+
+    vartype_stats = []
+    for vi, vt in enumerate(VARTYPE_COLS):
+        mask = test_df[f"vt_{vt}"] == 1
+        n = mask.sum()
+        if n > 0:
+            vus_rate = (preds_all[mask.values] == 2).mean()
+            vartype_stats.append({
+                "type": vt.replace("_", " ").title(),
+                "vus_rate": vus_rate,
+                "n": int(n),
+            })
+
+    # Sort by VUS rate descending
+    vartype_stats = sorted(vartype_stats, key=lambda x: x["vus_rate"], reverse=True)
+    types = [s["type"] for s in vartype_stats]
+    rates = [s["vus_rate"] for s in vartype_stats]
+    counts = [s["n"] for s in vartype_stats]
+
+    fig, ax = plt.subplots(figsize=(120/25.4, 90/25.4))
+
+    bars = ax.bar(types, rates, color=COLORS["cefn"], edgecolor='white', linewidth=0.5, width=0.6)
+
+    # Add n labels above bars
+    for bar, n, rate in zip(bars, counts, rates):
+        height = bar.get_height()
+        ax.text(bar.get_x() + bar.get_width()/2., height + 0.003,
+                f'{rate:.1%}\n(n={n})', ha='center', va='bottom', fontsize=8)
+
+    # Reference lines
+    ax.axhline(y=0.05, color=COLORS["gray"], linestyle='--', lw=0.8, alpha=0.5)
+    ax.text(len(types)-0.5, 0.052, 'Missense threshold (5%)', fontsize=7, color=COLORS["gray"], ha='right')
+    ax.axhline(y=0.02, color=COLORS["gray"], linestyle=':', lw=0.8, alpha=0.5)
+    ax.text(len(types)-0.5, 0.022, 'Non-missense threshold (2%)', fontsize=7, color=COLORS["gray"], ha='right')
+
+    ax.set_ylabel('VUS rate')
+    ax.set_ylim(0, 0.08)
+    ax.set_title('VUS rate by variant type')
+    ax.grid(True, alpha=0.2, linestyle='--', axis='y')
+
+    plt.tight_layout()
+    fig.savefig(FIGURES_DIR / "figure4_vus_by_vartype.png", format='png')
+    try:
+        fig.savefig(FIGURES_DIR / "figure4_vus_by_vartype.pdf", format='pdf')
+    except PermissionError:
+        pass
+    plt.close(fig)
+    print("Figure 4 saved: VUS rate by variant type")
+
+
+# =============================================================================
 # Figure 5: Ablation Study Bar Chart
 # =============================================================================
 def figure_5_ablation():
@@ -547,16 +618,19 @@ def main():
     print(f"  Internal test: {len(test_df)} variants")
     print(f"  Temporal external: {len(ext_df)} variants")
 
-    print("\n[2/4] Generating Figure 2: ROC curves...")
+    print("\n[2/5] Generating Figure 2: ROC curves...")
     figure_2_roc(model, test_df, ext_df)
 
-    print("\n[3/4] Generating Figure 3: Calibration curves...")
+    print("\n[3/5] Generating Figure 3: Calibration curves...")
     figure_3_calibration(model, test_df)
 
-    print("\n[4/4] Generating Figure 5: Ablation study...")
+    print("\n[4/5] Generating Figure 4: VUS rate by variant type...")
+    figure_4_vus(model, test_df)
+
+    print("\n[5/5] Generating Figure 5: Ablation study...")
     figure_5_ablation()
 
-    print("\n[5/4] Generating Figure 6: Decision curve analysis...")
+    print("\n[6/5] Generating Figure 6: Decision curve analysis...")
     figure_6_dca(model, test_df)
 
     print("\n" + "=" * 60)
