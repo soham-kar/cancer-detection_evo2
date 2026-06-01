@@ -1,0 +1,75 @@
+{
+  "CEFN_v2": {
+    "auroc": 0.9868507922535211,
+    "auprc": 0.9720750163849131,
+    "ece": 0.032461129559494165,
+    "vus_rate": 0.012594458438287154,
+    "mean_uncertainty": 0.06805083155632019,
+    "n_samples": 397,
+    "vt_summary": {
+      "missense": {
+        "n": 190,
+        "vus_rate": 0.015789473684210527,
+        "auroc": 0.9479638009049773,
+        "mean_uncertainty": 0.06817344250647646
+      },
+      "nonsense": {
+        "n": 0,
+        "vus_rate": null,
+        "auroc": null,
+        "mean_uncertainty": null
+      },
+      "splice_site": {
+        "n": 7,
+        "vus_rate": 0.0,
+        "auroc": null,
+        "mean_uncertainty": 0.06935223937034607
+      },
+      "frameshift": {
+        "n": 0,
+        "vus_rate": null,
+        "auroc": null,
+        "mean_uncertainty": null
+      },
+      "synonymous": {
+        "n": 1,
+        "vus_rate": 0.0,
+        "auroc": null,
+        "mean_uncertainty": 0.06638757884502411
+      },
+      "other": {
+        "n": 199,
+        "vus_rate": 0.010050251256281407,
+        "auroc": 0.9933566433566433,
+        "mean_uncertainty": 0.06789634118427583
+      }
+    }
+  },
+  "baselines": {
+    "Evo2-only": {
+      "auroc": 0.9654471544715447,
+      "n": 191
+    },
+    "Simple Average": {
+      "auroc": 0.9296875,
+      "n": 40
+    },
+    "DST+BMA": {
+      "auroc": 0.884090909090909,
+      "vus_rate": 0.6624685138539043,
+      "n": 397
+    }
+  },
+  "training": {
+    "n_params": 71236,
+    "best_epoch": 25,
+    "train_time_seconds": 104.4,
+    "n_epochs_trained": 100,
+    "platt_scalers": {
+      "evo2_score": {
+        "coef": -2442.369930183984,
+        "intercept": -2.9607344282209267
+      }
+    }
+  }
+}

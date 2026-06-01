@@ -1,0 +1,103 @@
+{
+  "metadata": {
+    "model_path": "D:\\project\\biotech-evo2\\backend\\phase1_implementation\\cefn_v2_outputs\\cefn_v2_model.pt",
+    "scaler_path": "D:\\project\\biotech-evo2\\backend\\phase1_implementation\\cefn_v2_outputs\\platt_scalers.joblib",
+    "csv_path": "backend\\phase1_implementation\\clinvar\\external_am_only.csv",
+    "n_samples": 565
+  },
+  "CEFN_v2_external": {
+    "auroc": 0.9758658806190126,
+    "auprc": 0.7271829046400493,
+    "ece": 0.08340690419473479,
+    "vus_rate": 0.0017699115044247787,
+    "mean_uncertainty": 0.06327872723340988,
+    "n_samples": 565
+  },
+  "CEFN_v2_external_vt_summary": {
+    "missense": {
+      "n": 565,
+      "vus_rate": 0.0017699115044247787,
+      "auroc": 0.9758658806190126,
+      "mean_uncertainty": 0.06327873050375322
+    },
+    "nonsense": {
+      "n": 0,
+      "vus_rate": null,
+      "auroc": null,
+      "mean_uncertainty": null
+    },
+    "splice_site": {
+      "n": 0,
+      "vus_rate": null,
+      "auroc": null,
+      "mean_uncertainty": null
+    },
+    "frameshift": {
+      "n": 0,
+      "vus_rate": null,
+      "auroc": null,
+      "mean_uncertainty": null
+    },
+    "synonymous": {
+      "n": 0,
+      "vus_rate": null,
+      "auroc": null,
+      "mean_uncertainty": null
+    },
+    "other": {
+      "n": 0,
+      "vus_rate": null,
+      "auroc": null,
+      "mean_uncertainty": null
+    }
+  },
+  "baselines_external": {
+    "Evo2-only": {
+      "auroc": null,
+      "n": 0
+    },
+    "Simple Average": {
+      "auroc": null,
+      "n": 0
+    },
+    "DST+BMA": {
+      "auroc": null,
+      "vus_rate": 1.0,
+      "n": 565
+    }
+  },
+  "success_checks": {
+    "auroc_above_0.96": {
+      "pass": true,
+      "value": 0.9758658806190126,
+      "threshold": 0.96
+    },
+    "ece_below_0.05": {
+      "pass": false,
+      "value": 0.08340690419473479,
+      "threshold": 0.05
+    },
+    "vus_rate_missense_below_0.05": {
+      "pass": true,
+      "value": 0.0017699115044247787,
+      "threshold": 0.05
+    },
+    "vus_rate_other_below_0.02": {
+      "pass": true,
+      "value": null,
+      "threshold": 0.02
+    },
+    "cefn_not_worse_than_evo2": {
+      "pass": true,
+      "value": {
+        "cefn": 0.9758658806190126,
+        "evo2": null
+      },
+      "threshold": "CEFN >= Evo2 - 0.02"
+    },
+    "__overall__": {
+      "pass": false,
+      "verdict": "FAIL \u2014 Review needed"
+    }
+  }
+}
