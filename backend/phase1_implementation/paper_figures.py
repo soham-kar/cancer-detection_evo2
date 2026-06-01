@@ -391,18 +391,18 @@ def figure_5_ablation():
     eces = [results[m]["ECE"] for m in ordered_models]
     vus_rates = [results[m]["VUS Rate"] for m in ordered_models]
 
-    # Shorten names for display
+    # Clean journal-style labels (no minus signs, component names only)
     short_names = {
         "Full CEFN v2": "Full",
-        "No Prior Network": "− Prior",
-        "Shared Missing Token": "− Missing emb.",
-        "Learnable α_VUS": "− Fixed α_VUS",
-        "No Deep Sets": "− Deep Sets",
-        "No Platt Scaling": "− Platt",
+        "No Prior Network": "Prior",
+        "No Deep Sets": "Deep Sets",
+        "Shared Missing Token": "Missing emb.",
+        "Learnable α_VUS": "Fixed α_VUS",
+        "No Platt Scaling": "Platt",
     }
     display_names = [short_names.get(m, m) for m in ordered_models]
 
-    fig, ax = plt.subplots(figsize=(180/25.4, 110/25.4))
+    fig, ax = plt.subplots(figsize=(160/25.4, 100/25.4))
 
     x = np.arange(len(ordered_models))
     width = 0.25
@@ -428,11 +428,11 @@ def figure_5_ablation():
 
     ax.set_ylabel('Metric value')
     ax.set_xticks(x)
-    ax.set_xticklabels(display_names, rotation=15, ha='right', fontsize=9)
-    ax.set_ylim(0, 1.15)
+    ax.set_xticklabels(display_names, rotation=0, ha='center', fontsize=10)
+    ax.set_ylim(0, 1.05)
     ax.legend(fontsize=9, loc='upper center', frameon=False, ncol=3,
-              bbox_to_anchor=(0.5, 1.08), columnspacing=1.5)
-    ax.set_title('Ablation study: component contribution', pad=30)
+              bbox_to_anchor=(0.5, 1.06), columnspacing=1.5)
+    ax.set_title('Ablation study: component contribution', pad=25)
     ax.grid(True, alpha=0.2, linestyle='--', axis='y')
 
     # Value labels: ECE only (small, informative); VUS only if >5%
@@ -445,8 +445,11 @@ def figure_5_ablation():
             ax.text(i + width, v + 0.02, f'{v:.1%}', ha='center', va='bottom', fontsize=7, color=COLORS["dst"])
 
     plt.tight_layout()
-    fig.savefig(FIGURES_DIR / "figure5_ablation.pdf", format='pdf')
     fig.savefig(FIGURES_DIR / "figure5_ablation.png", format='png')
+    try:
+        fig.savefig(FIGURES_DIR / "figure5_ablation.pdf", format='pdf')
+    except PermissionError:
+        print("  Warning: PDF locked by viewer, PNG saved successfully")
     plt.close(fig)
     print("Figure 5 saved: Ablation study")
 
