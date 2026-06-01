@@ -212,7 +212,9 @@ evo2_image = (
         "libcudnn8-dev", "git", "gcc", "g++"
     )
     .env({"CC": "/usr/bin/gcc", "CXX": "/usr/bin/g++"})
-    .pip_install("packaging", "wheel", "setuptools", "ninja")
+    .pip_install("packaging", "wheel", "setuptools", "ninja", "pydantic")
+    # Install PyTorch with CUDA 12.4 BEFORE evo2 to prevent CUDA version mismatch
+    .pip_install("torch", index_url="https://download.pytorch.org/whl/cu124")
     .run_commands(
         "git clone --recurse-submodules https://github.com/ArcInstitute/evo2.git && "
         "cd evo2 && pip install ."
@@ -227,9 +229,9 @@ evo2_image = (
     .pip_install(
         "biopython", 
         "huggingface_hub", 
-        "torch", 
         "vtx>=0.0.8", 
         "fastapi[standard]", 
+        "pydantic",  # Required for request/response models
         "requests", 
         "scikit-learn", 
         "redis",
@@ -238,11 +240,15 @@ evo2_image = (
         "seaborn",
         "openpyxl",
         "groq>=0.4.0",  # Official Groq SDK for LLM
+        "duckdb>=1.0.0",  # Embedded DB for AlphaMissense lookup
     )
     .pip_install_from_requirements("backend/requirements.txt")
     .env({"PYTHONPATH": "/root"})
     # Add clinical enrichment module to the image (MUST BE LAST)
     .add_local_file("backend/clinical_enrichment.py", remote_path="/root/clinical_enrichment.py")
+    # Add AlphaMissense lookup + consensus engine for Phase 1
+    .add_local_file("backend/phase1_implementation/alphamissense_lookup.py", remote_path="/root/alphamissense_lookup.py")
+    .add_local_file("backend/phase1_implementation/consensus_engine.py", remote_path="/root/consensus_engine.py")
 )
 
 app = modal.App(
@@ -258,6 +264,11 @@ app = modal.App(
 # Models are cached across container restarts to avoid repeated downloads
 volume = modal.Volume.from_name("hf_cache", create_if_missing=True)
 mount_path = "/root/.cache/huggingface"
+
+# Persistent volume for AlphaMissense DuckDB (9.2 GB)
+# Uploaded once via CLI: modal volume put alphamissense_data alphamissense.duckdb
+am_volume = modal.Volume.from_name("alphamissense_data", create_if_missing=True)
+am_mount_path = "/root/alphamissense_data"
 
 # =============================================================================
 # HELPER FUNCTIONS
@@ -394,7 +405,7 @@ def _sanitize_for_json(obj):
 # =============================================================================
 @app.cls(
     gpu="H100", 
-    volumes={mount_path: volume}, 
+    volumes={mount_path: volume, am_mount_path: am_volume}, 
     scaledown_window=60,  # Shutdown after 60 seconds of inactivity to optimize costs
     retries=2
 )
@@ -1218,8 +1229,47 @@ class Evo2Model:
                 reference=reference,
                 alternative=alternative
             )
-            if external_scores.get("cadd"):
+            
+            # NEW Phase 1: AlphaMissense lookup (protein-level, 2.6ms)
+            am_score = self._fetch_alphamissense_score(
+                chromosome=chromosome,
+                position=variant_position,
+                reference=reference,
+                alternative=alternative,
+                vep_annotation=vep_annotation
+            )
+            if am_score:
+                external_scores["alphamissense"] = am_score
+            
+            if external_scores.get("cadd") or external_scores.get("alphamissense"):
                 result["external_scores"] = external_scores
+        
+        # NEW Phase 1: Multi-model consensus (Evo2 + AlphaMissense + CADD + REVEL)
+        if reference:
+            try:
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("consensus_engine", "/root/consensus_engine.py")
+                consensus_module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(consensus_module)
+                ConsensusEngine = consensus_module.ConsensusEngine
+                
+                engine = ConsensusEngine()
+                consensus = engine.compute_consensus(
+                    evo2_prediction=prediction,
+                    evo2_confidence=confidence,
+                    alphamissense_score=(external_scores.get("alphamissense") or {}).get("score") if external_scores else None,
+                    alphamissense_confidence=(external_scores.get("alphamissense") or {}).get("am_class") if external_scores else None,
+                    cadd_phred=(external_scores.get("cadd") or {}).get("phred") if external_scores else None,
+                    gene_symbol=gene_symbol,
+                    variant_str=f"{reference}>{alternative}"
+                )
+                result["multi_model_consensus"] = engine.to_dict(consensus)
+                logger.info(f"Multi-model consensus: {consensus.consensus_classification} ({consensus.models_agree}/{consensus.models_total} models)")
+            except Exception as e:
+                logger.warning(f"Multi-model consensus failed: {e}")
+                import traceback
+                logger.warning(traceback.format_exc())
+            result["consensus_debug_reference_missing"] = True
         
         # LLM-powered ACMG criteria refinement
         if gene_symbol and os.getenv("GROQ_API_KEY") and acmg_criteria:
@@ -2057,6 +2107,7 @@ Remember: Cite sources, be precise, and include the disclaimer. Acknowledge any 
         result = {
             "cadd": None,
             "revel": None,
+            "alphamissense": None,
             "concordance_note": None
         }
         
@@ -2094,6 +2145,70 @@ Remember: Cite sources, be precise, and include the disclaimer. Acknowledge any 
             logger.warning(f"External score fetch failed: {e}")
         
         return result
+    
+    def _fetch_alphamissense_score(
+        self,
+        chromosome: str,
+        position: int,
+        reference: str,
+        alternative: str,
+        vep_annotation: dict = None
+    ) -> dict:
+        """
+        Fetch AlphaMissense pathogenicity score from local DuckDB.
+        
+        Uses the pre-built 359M-variant database for sub-3ms lookups.
+        Tries protein-level lookup first (by UniProt + AA change),
+        falls back to genomic coordinate lookup.
+        
+        Paper: Cheng et al. (2023) — Science
+        """
+        try:
+            import importlib.util
+            spec = importlib.util.spec_from_file_location("alphamissense_lookup", "/root/alphamissense_lookup.py")
+            am_module = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(am_module)
+            AlphaMissenseDB = am_module.AlphaMissenseDB
+            
+            db = AlphaMissenseDB(data_dir="/root/alphamissense_data/alphamissense_data")
+            
+            # Try protein-level lookup if VEP annotation has UniProt + AA info
+            if vep_annotation:
+                uniprot_id = vep_annotation.get("uniprotId") or vep_annotation.get("uniprot_id")
+                aa_pos = vep_annotation.get("aaPosition") or vep_annotation.get("aa_position")
+                ref_aa = vep_annotation.get("refAA") or vep_annotation.get("ref_aa")
+                alt_aa = vep_annotation.get("altAA") or vep_annotation.get("alt_aa")
+                
+                if uniprot_id and aa_pos and ref_aa and alt_aa:
+                    result = db.lookup(
+                        uniprot_id=str(uniprot_id),
+                        position=int(aa_pos),
+                        ref_aa=str(ref_aa),
+                        alt_aa=str(alt_aa)
+                    )
+                    if result:
+                        logger.info(f"AlphaMissense (protein): {result['variant']} = {result['score']} ({result['classification']})")
+                        db.close()
+                        return result
+            
+            # Fallback: genomic coordinate lookup
+            result = db.lookup_by_genomic(
+                chrom=chromosome,
+                pos=position,
+                ref=reference,
+                alt=alternative
+            )
+            db.close()
+            
+            if result:
+                logger.info(f"AlphaMissense (genomic): {result['variant']} = {result['score']} ({result['classification']})")
+            return result
+            
+        except Exception as e:
+            logger.warning(f"AlphaMissense lookup failed: {e}")
+            import traceback
+            logger.warning(traceback.format_exc())
+            return None
     
     def _refine_acmg_with_llm(
         self,
