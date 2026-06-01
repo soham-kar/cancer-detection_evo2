@@ -402,7 +402,7 @@ def figure_5_ablation():
     }
     display_names = [short_names.get(m, m) for m in ordered_models]
 
-    fig, ax = plt.subplots(figsize=(180/25.4, 100/25.4), constrained_layout=True)
+    fig, ax = plt.subplots(figsize=(180/25.4, 110/25.4))
 
     x = np.arange(len(ordered_models))
     width = 0.25
@@ -411,7 +411,7 @@ def figure_5_ablation():
     bars1 = ax.bar(x - width, aurocs, width, label='AUROC', color=COLORS["cefn"], edgecolor='white', linewidth=0.5)
     # ECE bars
     bars2 = ax.bar(x, eces, width, label='ECE', color=COLORS["am"], edgecolor='white', linewidth=0.5)
-    # VUS rate bars (scaled to 0-1 for visibility)
+    # VUS rate bars
     bars3 = ax.bar(x + width, vus_rates, width, label='VUS rate', color=COLORS["dst"], edgecolor='white', linewidth=0.5)
 
     # Highlight full model
@@ -422,25 +422,29 @@ def figure_5_ablation():
     bars3[0].set_edgecolor(COLORS["dark"])
     bars3[0].set_linewidth(1.5)
 
-    # Reference lines (thresholds only, no text to avoid overlap)
+    # Reference lines
     ax.axhline(y=0.96, color=COLORS["gray"], linestyle='--', lw=0.8, alpha=0.5)
     ax.axhline(y=0.05, color=COLORS["gray"], linestyle='--', lw=0.8, alpha=0.5)
 
     ax.set_ylabel('Metric value')
     ax.set_xticks(x)
     ax.set_xticklabels(display_names, rotation=15, ha='right', fontsize=9)
-    ax.set_ylim(0, 1.05)
-    ax.legend(fontsize=8, loc='upper left', frameon=False, ncol=3, bbox_to_anchor=(0, 1.02))
-    ax.set_title('Ablation study: component contribution')
+    ax.set_ylim(0, 1.15)
+    ax.legend(fontsize=9, loc='upper center', frameon=False, ncol=3,
+              bbox_to_anchor=(0.5, 1.08), columnspacing=1.5)
+    ax.set_title('Ablation study: component contribution', pad=30)
     ax.grid(True, alpha=0.2, linestyle='--', axis='y')
 
-    # Add value labels on bars (only for notable values to avoid clutter)
+    # Value labels: ECE only (small, informative); VUS only if >5%
     for i, (a, e, v) in enumerate(zip(aurocs, eces, vus_rates)):
-        ax.text(i - width, a + 0.02, f'{a:.3f}', ha='center', va='bottom', fontsize=6, color=COLORS["cefn"])
-        ax.text(i, e + 0.02, f'{e:.3f}', ha='center', va='bottom', fontsize=6, color=COLORS["am"])
+        # ECE label (skip if ≥0.99 since bar at top is obvious)
+        if e < 0.99:
+            ax.text(i, e + 0.02, f'{e:.3f}', ha='center', va='bottom', fontsize=7, color=COLORS["am"])
+        # VUS label only if significant
         if v > 0.05:
-            ax.text(i + width, v + 0.02, f'{v:.1%}', ha='center', va='bottom', fontsize=6, color=COLORS["dst"])
+            ax.text(i + width, v + 0.02, f'{v:.1%}', ha='center', va='bottom', fontsize=7, color=COLORS["dst"])
 
+    plt.tight_layout()
     fig.savefig(FIGURES_DIR / "figure5_ablation.pdf", format='pdf')
     fig.savefig(FIGURES_DIR / "figure5_ablation.png", format='png')
     plt.close(fig)
