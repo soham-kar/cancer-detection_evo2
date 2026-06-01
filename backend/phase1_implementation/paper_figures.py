@@ -259,8 +259,11 @@ def figure_2_roc(model, test_df, ext_df):
     # DST gives hard class; for ROC we use class as probability proxy
     dst_prob = (dst_preds[dst_bin_mask] == 0).astype(float)
 
-    # Compute ROC curves
-    fpr_cefn, tpr_cefn, _ = roc_curve(int_labels, int_cefn_prob)
+    # sklearn expects positive=1; CEFN labels are Pathogenic=0, Benign=1 -> flip only CEFN
+    int_labels_sk = 1 - int_labels
+    # Baseline labels already converted: (label_int == 0).astype(int) gives Pathogenic=1
+
+    fpr_cefn, tpr_cefn, _ = roc_curve(int_labels_sk, int_cefn_prob)
     fpr_evo2, tpr_evo2, _ = roc_curve(evo2_labels, evo2_prob)
     fpr_am, tpr_am, _ = roc_curve(am_labels, am_prob)
     fpr_avg, tpr_avg, _ = roc_curve(avg_labels, avg_prob)
@@ -274,7 +277,8 @@ def figure_2_roc(model, test_df, ext_df):
 
     # --- Temporal External ---
     ext_labels, ext_cefn_prob, _ = get_predictions(model, ext_df, predictor_ids)
-    fpr_ext, tpr_ext, _ = roc_curve(ext_labels, ext_cefn_prob)
+    ext_labels_sk = 1 - ext_labels
+    fpr_ext, tpr_ext, _ = roc_curve(ext_labels_sk, ext_cefn_prob)
     auc_ext = auc(fpr_ext, tpr_ext)
 
     # --- Plot ---
@@ -282,7 +286,7 @@ def figure_2_roc(model, test_df, ext_df):
 
     # Panel A: Internal test
     ax1.plot(fpr_cefn, tpr_cefn, label=f'CEFN v2 (AUROC = {auc_cefn:.3f})', lw=1.5, color=COLORS["cefn"])
-    ax1.plot(fpr_evo2, tpr_evo2, label=f'Evo2‑only (AUROC = {auc_evo2:.3f})', lw=1.2, color=COLORS["evo2"], linestyle='--')
+    ax1.plot(fpr_evo2, tpr_evo2, label=f'Evo2-only (AUROC = {auc_evo2:.3f})', lw=1.2, color=COLORS["evo2"], linestyle='--')
     ax1.plot(fpr_am, tpr_am, label=f'AlphaMissense (AUROC = {auc_am:.3f})', lw=1.2, color=COLORS["am"], linestyle=':')
     ax1.plot(fpr_avg, tpr_avg, label=f'Simple Average (AUROC = {auc_avg:.3f})', lw=1.2, color=COLORS["avg"], linestyle='-.')
     ax1.plot(fpr_dst, tpr_dst, label=f'DST+BMA (AUROC = {auc_dst:.3f})', lw=1.2, color=COLORS["dst"], linestyle=(0, (3, 1, 1, 1)))
@@ -326,11 +330,14 @@ def figure_3_calibration(model, test_df):
     evo2_labels = (test_df.loc[evo2_mask, "label_int"] == 0).astype(int).values
     evo2_prob = test_df.loc[evo2_mask, "evo2_score"].values
 
-    # Reliability diagram
-    fraction_positive_cefn, mean_predicted_cefn = calibration_curve(int_labels, int_prob, n_bins=10, strategy='uniform')
+    # sklearn expects positive=1; CEFN labels are Pathogenic=0, Benign=1 -> flip only CEFN
+    int_labels_sk = 1 - int_labels
+    # evo2_labels already has Pathogenic=1 from (label_int == 0).astype(int)
+
+    fraction_positive_cefn, mean_predicted_cefn = calibration_curve(int_labels_sk, int_prob, n_bins=10, strategy='uniform')
     fraction_positive_evo2, mean_predicted_evo2 = calibration_curve(evo2_labels, evo2_prob, n_bins=10, strategy='uniform')
 
-    ece_cefn = compute_ece(int_labels, int_prob)
+    ece_cefn = compute_ece(int_labels_sk, int_prob)
     ece_evo2 = compute_ece(evo2_labels, evo2_prob)
 
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(180/25.4, 80/25.4), constrained_layout=True)
@@ -338,7 +345,7 @@ def figure_3_calibration(model, test_df):
     # Panel A: Reliability diagram
     ax1.plot(mean_predicted_cefn, fraction_positive_cefn, 's-', label=f'CEFN v2 (ECE = {ece_cefn:.3f})',
              color=COLORS["cefn"], markersize=6, lw=1.5)
-    ax1.plot(mean_predicted_evo2, fraction_positive_evo2, 'o-', label=f'Evo2‑only (ECE = {ece_evo2:.3f})',
+    ax1.plot(mean_predicted_evo2, fraction_positive_evo2, 'o-', label=f'Evo2-only (ECE = {ece_evo2:.3f})',
              color=COLORS["evo2"], markersize=6, lw=1.5)
     ax1.plot([0, 1], [0, 1], 'k--', lw=0.8, alpha=0.4, label='Perfect calibration')
     ax1.set_xlabel('Mean predicted probability')
@@ -352,7 +359,7 @@ def figure_3_calibration(model, test_df):
 
     # Panel B: Probability histogram
     ax2.hist(int_prob, bins=20, alpha=0.6, color=COLORS["cefn"], label='CEFN v2', edgecolor='white')
-    ax2.hist(evo2_prob, bins=20, alpha=0.6, color=COLORS["evo2"], label='Evo2‑only', edgecolor='white')
+    ax2.hist(evo2_prob, bins=20, alpha=0.6, color=COLORS["evo2"], label='Evo2-only', edgecolor='white')
     ax2.axvline(x=0.5, color=COLORS["dark"], linestyle='--', lw=0.8, alpha=0.5, label='Threshold = 0.5')
     ax2.set_xlabel('Predicted probability of pathogenicity')
     ax2.set_ylabel('Count')
@@ -415,26 +422,24 @@ def figure_5_ablation():
     bars3[0].set_edgecolor(COLORS["dark"])
     bars3[0].set_linewidth(1.5)
 
-    # Reference lines
+    # Reference lines (thresholds only, no text to avoid overlap)
     ax.axhline(y=0.96, color=COLORS["gray"], linestyle='--', lw=0.8, alpha=0.5)
-    ax.text(len(ordered_models)-0.5, 0.965, 'AUROC ≥ 0.96', fontsize=7, color=COLORS["gray"], ha='right')
     ax.axhline(y=0.05, color=COLORS["gray"], linestyle='--', lw=0.8, alpha=0.5)
-    ax.text(len(ordered_models)-0.5, 0.055, 'ECE ≤ 0.05', fontsize=7, color=COLORS["gray"], ha='right')
 
     ax.set_ylabel('Metric value')
     ax.set_xticks(x)
-    ax.set_xticklabels(display_names, rotation=30, ha='right', fontsize=9)
+    ax.set_xticklabels(display_names, rotation=15, ha='right', fontsize=9)
     ax.set_ylim(0, 1.05)
-    ax.legend(fontsize=8, loc='upper left', frameon=False, ncol=3)
+    ax.legend(fontsize=8, loc='upper left', frameon=False, ncol=3, bbox_to_anchor=(0, 1.02))
     ax.set_title('Ablation study: component contribution')
     ax.grid(True, alpha=0.2, linestyle='--', axis='y')
 
-    # Add value labels on bars
+    # Add value labels on bars (only for notable values to avoid clutter)
     for i, (a, e, v) in enumerate(zip(aurocs, eces, vus_rates)):
-        ax.text(i - width, a + 0.01, f'{a:.3f}', ha='center', va='bottom', fontsize=6, color=COLORS["cefn"])
-        ax.text(i, e + 0.01, f'{e:.3f}', ha='center', va='bottom', fontsize=6, color=COLORS["am"])
+        ax.text(i - width, a + 0.02, f'{a:.3f}', ha='center', va='bottom', fontsize=6, color=COLORS["cefn"])
+        ax.text(i, e + 0.02, f'{e:.3f}', ha='center', va='bottom', fontsize=6, color=COLORS["am"])
         if v > 0.05:
-            ax.text(i + width, v + 0.01, f'{v:.1%}', ha='center', va='bottom', fontsize=6, color=COLORS["dst"])
+            ax.text(i + width, v + 0.02, f'{v:.1%}', ha='center', va='bottom', fontsize=6, color=COLORS["dst"])
 
     fig.savefig(FIGURES_DIR / "figure5_ablation.pdf", format='pdf')
     fig.savefig(FIGURES_DIR / "figure5_ablation.png", format='png')
@@ -454,33 +459,44 @@ def figure_6_dca(model, test_df):
     evo2_labels = (test_df.loc[evo2_mask, "label_int"] == 0).astype(int).values
     evo2_prob = test_df.loc[evo2_mask, "evo2_score"].values
 
+    # sklearn convention: positive=1; CEFN labels are Pathogenic=0 -> flip
+    int_labels_sk = 1 - int_labels
+    # evo2_labels already has Pathogenic=1
+    prevalence = np.mean(int_labels_sk == 1)
+
     thresholds = np.linspace(0.01, 0.99, 100)
-    prevalence = np.mean(int_labels == 0)
 
     def net_benefit(probs, labels, pt):
         pred = (probs >= pt).astype(int)
-        tp = np.sum((pred == 1) & (labels == 0))
-        fp = np.sum((pred == 1) & (labels == 1))
+        tp = np.sum((pred == 1) & (labels == 1))
+        fp = np.sum((pred == 1) & (labels == 0))
         n = len(labels)
         return (tp / n) - (fp / n) * (pt / (1 - pt))
 
-    nb_cefn = [net_benefit(int_prob, int_labels, pt) for pt in thresholds]
+    nb_cefn = [net_benefit(int_prob, int_labels_sk, pt) for pt in thresholds]
     nb_evo2 = [net_benefit(evo2_prob, evo2_labels, pt) for pt in thresholds]
-    nb_all = [prevalence - (1 - prevalence) * (pt / (1 - pt)) for pt in thresholds]
+    # Clip "treat all" to avoid singularity at pt->1
+    nb_all = []
+    for pt in thresholds:
+        if pt >= 0.99:
+            nb_all.append(-10)
+        else:
+            nb_all.append(prevalence - (1 - prevalence) * (pt / (1 - pt)))
+    nb_all = np.clip(nb_all, -0.5, 0.5)
     nb_none = [0] * len(thresholds)
 
     fig, ax = plt.subplots(figsize=(120/25.4, 100/25.4), constrained_layout=True)
 
     ax.plot(thresholds, nb_cefn, label='CEFN v2', color=COLORS["cefn"], lw=2)
-    ax.plot(thresholds, nb_evo2, label='Evo2‑only', color=COLORS["evo2"], lw=1.5, linestyle='--')
+    ax.plot(thresholds, nb_evo2, label='Evo2-only', color=COLORS["evo2"], lw=1.5, linestyle='--')
     ax.plot(thresholds, nb_all, label='Treat all', color=COLORS["gray"], lw=1, linestyle=':')
     ax.plot(thresholds, nb_none, label='Treat none', color=COLORS["dark"], lw=1, linestyle='-.')
 
     # Clinical threshold markers
     for pt, label in [(0.05, 'Screening'), (0.20, 'Diagnostic'), (0.50, 'Treatment')]:
         ax.axvline(x=pt, color=COLORS["gray"], linestyle='--', lw=0.5, alpha=0.4)
-        ax.text(pt, ax.get_ylim()[1] * 0.95, label, rotation=90, fontsize=7,
-                color=COLORS["gray"], ha='right', va='top')
+        ax.text(pt + 0.01, 0.40, label, rotation=90, fontsize=7,
+                color=COLORS["gray"], ha='left', va='top')
 
     # Shade where CEFN > Evo2
     ax.fill_between(thresholds, nb_evo2, nb_cefn, where=np.array(nb_cefn) > np.array(nb_evo2),
@@ -491,6 +507,7 @@ def figure_6_dca(model, test_df):
     ax.set_title('Decision curve analysis')
     ax.legend(fontsize=8, loc='upper right', frameon=False)
     ax.set_xlim(0, 1)
+    ax.set_ylim(-0.1, 0.5)
     ax.grid(True, alpha=0.2, linestyle='--')
     ax.axhline(y=0, color='k', lw=0.5, alpha=0.3)
 
