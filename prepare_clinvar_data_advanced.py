@@ -26,25 +26,25 @@ def prepare_advanced_data():
     
     print(f"Total SNVs (GRCh38): {len(df)}")
 
-    # 3. Sample the 4 Categories (1,000 each)
-    # We use random_state=42 for reproducibility
+    # 3. Sample the 4 Categories (1,000 each = 4,000 total)
+    # We use random_state=2026 for fresh sampling (different from original 500-sample run)
     
     # A. Pathogenic (exact match)
-    pathogenic = df[df["ClinicalSignificance"] == "Pathogenic"].sample(n=500, random_state=42)
+    pathogenic = df[df["ClinicalSignificance"] == "Pathogenic"].sample(n=1000, random_state=2026)
     print(f"  Pathogenic variants available: {len(df[df['ClinicalSignificance'] == 'Pathogenic'])}")
     
     # B. Benign (exact match)
-    benign = df[df["ClinicalSignificance"] == "Benign"].sample(n=500, random_state=42)
+    benign = df[df["ClinicalSignificance"] == "Benign"].sample(n=1000, random_state=2026)
     print(f"  Benign variants available: {len(df[df['ClinicalSignificance'] == 'Benign'])}")
     
     # C. Uncertain Significance (VUS) - Note: space not underscore
-    vus = df[df["ClinicalSignificance"] == "Uncertain significance"].sample(n=500, random_state=42)
+    vus = df[df["ClinicalSignificance"] == "Uncertain significance"].sample(n=1000, random_state=2026)
     print(f"  VUS variants available: {len(df[df['ClinicalSignificance'] == 'Uncertain significance'])}")
     
     # D. Conflicting - Updated label to match actual ClinVar
     conflicting = df[
         df["ClinicalSignificance"] == "Conflicting classifications of pathogenicity"
-    ].sample(n=500, random_state=42)
+    ].sample(n=1000, random_state=2026)
     print(f"  Conflicting variants available: {len(df[df['ClinicalSignificance'] == 'Conflicting classifications of pathogenicity'])}")
 
     # 4. Combine
