@@ -190,17 +190,29 @@ class BatchRequest(BaseModel):
 def build_cuda_kernels():
     """
     Compile CUDA kernels for flash-attention and transformer-engine.
-    
+
     This function runs during image build on a GPU-enabled machine to compile
     optimized kernels that significantly improve inference performance.
     Uses L40S GPU with 32GB memory for compilation.
     """
     os.environ["MAX_JOBS"] = "6"
-    for pkg in ("flash-attn==2.8.0.post2",
-                "transformer_engine[pytorch]==2.8.0"):
-        subprocess.check_call([
-            sys.executable, "-m", "pip", "install", pkg, "--no-build-isolation"
-        ])
+    os.environ["TORCH_CUDA_ARCH_LIST"] = "7.0;7.5;8.0;8.6;8.9;9.0"
+    # PyTorch's official CUDA 12.4 wheels are built with the OLD C++ ABI
+    # (_GLIBCXX_USE_CXX11_ABI=0).  flash-attn must be compiled with the same ABI
+    # or we get the runtime undefined-symbol crash in flash_attn_2_cuda.
+    os.environ["CFLAGS"] = "-D_GLIBCXX_USE_CXX11_ABI=0"
+    os.environ["CXXFLAGS"] = "-D_GLIBCXX_USE_CXX11_ABI=0"
+    os.environ["NVCC_APPEND_FLAGS"] = "-D_GLIBCXX_USE_CXX11_ABI=0"
+    # Pin flash-attn to a version known to build cleanly against torch 2.6.0+cu124.
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install",
+        "flash-attn==2.7.4.post1", "--no-build-isolation"
+    ])
+    subprocess.check_call([
+        sys.executable, "-m", "pip", "install",
+        "transformer_engine[pytorch]==2.8.0", "--no-build-isolation"
+    ])
+
 # Build custom Modal image with Evo2 dependencies
 # This image includes CUDA 12.4, Python 3.12, and all required packages
 evo2_image = (
@@ -213,8 +225,15 @@ evo2_image = (
     )
     .env({"CC": "/usr/bin/gcc", "CXX": "/usr/bin/g++"})
     .pip_install("packaging", "wheel", "setuptools", "ninja", "pydantic")
-    # Install PyTorch with CUDA 12.4 BEFORE evo2 to prevent CUDA version mismatch
-    .pip_install("torch", index_url="https://download.pytorch.org/whl/cu124")
+    # Pin PyTorch 2.6.0 + CUDA 12.4 BEFORE evo2/flash-attn so every compiled extension
+    # is built against the same torch ABI.  Using the latest torch here pulled a newer ABI
+    # that the prebuilt flash-attn wheel could not satisfy.
+    .pip_install(
+        "torch==2.6.0+cu124",
+        "torchvision==0.21.0+cu124",
+        "torchaudio==2.6.0+cu124",
+        index_url="https://download.pytorch.org/whl/cu124",
+    )
     .run_commands(
         "git clone --recurse-submodules https://github.com/ArcInstitute/evo2.git && "
         "cd evo2 && pip install ."
@@ -242,13 +261,13 @@ evo2_image = (
         "groq>=0.4.0",  # Official Groq SDK for LLM
         "duckdb>=1.0.0",  # Embedded DB for AlphaMissense lookup
     )
-    .pip_install_from_requirements("backend/requirements.txt")
+    .pip_install_from_requirements("requirements.txt")
     .env({"PYTHONPATH": "/root"})
     # Add clinical enrichment module to the image (MUST BE LAST)
-    .add_local_file("backend/clinical_enrichment.py", remote_path="/root/clinical_enrichment.py")
+    .add_local_file("clinical_enrichment.py", remote_path="/root/clinical_enrichment.py")
     # Add AlphaMissense lookup + consensus engine for Phase 1
-    .add_local_file("backend/phase1_implementation/alphamissense_lookup.py", remote_path="/root/alphamissense_lookup.py")
-    .add_local_file("backend/phase1_implementation/consensus_engine.py", remote_path="/root/consensus_engine.py")
+    .add_local_file("phase1_implementation/alphamissense_lookup.py", remote_path="/root/alphamissense_lookup.py")
+    .add_local_file("phase1_implementation/consensus_engine.py", remote_path="/root/consensus_engine.py")
 )
 
 app = modal.App(
@@ -1269,7 +1288,7 @@ class Evo2Model:
                 logger.warning(f"Multi-model consensus failed: {e}")
                 import traceback
                 logger.warning(traceback.format_exc())
-            result["consensus_debug_reference_missing"] = True
+                result["consensus_debug_error"] = str(e)
         
         # LLM-powered ACMG criteria refinement
         if gene_symbol and os.getenv("GROQ_API_KEY") and acmg_criteria:
@@ -2103,31 +2122,51 @@ Remember: Cite sources, be precise, and include the disclaimer. Acknowledge any 
         CADD (Combined Annotation Dependent Depletion) provides PHRED-scaled
         scores where >20 indicates likely pathogenic. This enables direct
         comparison between Evo2 and an established orthogonal method.
+        
+        Uses the public CADD SNV REST API:
+            https://cadd.gs.washington.edu/api/v1.0/<CADD-version>/<chrom>:<pos>_<ref>_<alt>
         """
         result = {
             "cadd": None,
             "revel": None,
             "alphamissense": None,
-            "concordance_note": None
+            "concordance_note": (
+                "REVEL scores are not currently retrieved because no public REST API or "
+                "mounted REVEL database is available in this deployment. "
+                "Consider integrating dbNSFP or a local REVEL TSV file for missense variants."
+            )
         }
         
         try:
             import requests as req
             
-            # Query CADD API
-            cadd_url = "https://cadd.gs.washington.edu/api/v1.0/annotate"
-            cadd_variant = f"{chromosome.replace('chr', '')}-{position}-{reference}-{alternative}"
-            
-            cadd_resp = req.post(
-                cadd_url,
-                json={"variant": cadd_variant, "genome": "GRCh38"},
-                timeout=15
+            # Query CADD SNV API (GRCh38 v1.7).
+            # The single-SNV endpoint is flaky and sometimes returns an empty
+            # list even when data exists. The position endpoint (all 3 alts)
+            # is more reliable, so we use that and match the desired alt.
+            chrom_clean = chromosome.replace("chr", "")
+            cadd_url = (
+                f"https://cadd.gs.washington.edu/api/v1.0/GRCh38-v1.7/"
+                f"{chrom_clean}:{position}"
             )
-            
+
+            cadd_resp = req.get(cadd_url, timeout=15)
+
             if cadd_resp.status_code == 200:
                 cadd_data = cadd_resp.json()
-                if cadd_data and "PHRED" in cadd_data:
-                    phred = float(cadd_data["PHRED"])
+                # CADD returns a list of SNV objects; pick the one matching ref/alt
+                match = None
+                for snv in cadd_data:
+                    if (
+                        str(snv.get("Pos")) == str(position)
+                        and snv.get("Ref") == reference
+                        and snv.get("Alt") == alternative
+                    ):
+                        match = snv
+                        break
+
+                if match and "PHRED" in match:
+                    phred = float(match["PHRED"])
                     interpretation = (
                         "Likely Pathogenic" if phred >= 20 else
                         "Possibly Pathogenic" if phred >= 15 else
@@ -2136,10 +2175,14 @@ Remember: Cite sources, be precise, and include the disclaimer. Acknowledge any 
                     )
                     result["cadd"] = {
                         "phred": round(phred, 1),
-                        "raw": round(float(cadd_data.get("rawScore", 0)), 4),
+                        "raw": round(float(match.get("RawScore", 0)), 4),
                         "interpretation": interpretation
                     }
                     logger.info(f"CADD score: PHRED={phred} ({interpretation})")
+                else:
+                    logger.warning(f"CADD API returned no matching SNV for {chromosome}:{position} {reference}>{alternative}")
+            else:
+                logger.warning(f"CADD API returned status {cadd_resp.status_code} for {cadd_url}")
             
         except Exception as e:
             logger.warning(f"External score fetch failed: {e}")

@@ -38,6 +38,17 @@ export function ToolConcordance({
     });
   }
 
+  if (data.alphamissense) {
+    rows.push({
+      tool: "AlphaMissense",
+      score: `Score = ${data.alphamissense.score}`,
+      prediction: data.alphamissense.classification,
+      agrees: data.alphamissense.classification.toLowerCase().includes(
+        evo2Prediction.toLowerCase().includes("pathogenic") ? "pathogenic" : "benign"
+      ),
+    });
+  }
+
   if (clinvarClassification && clinvarClassification !== "Unknown") {
     rows.push({
       tool: "ClinVar",

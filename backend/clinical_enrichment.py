@@ -371,35 +371,70 @@ class PubMedRAG:
         self.cache_ttl = cache_ttl
     
     def _search_pubmed(self, gene_symbol: str, max_results: int = 5) -> List[Dict]:
-        """Search PubMed for gene-related variant articles"""
+        """Search PubMed for gene-related variant articles with rate-limit retries."""
+        import time
+        from urllib.error import HTTPError
+
         try:
-            # Focused search for clinically relevant articles
-            query = f"{gene_symbol}[Gene] AND (pathogenic OR variant OR mutation) AND humans[MeSH]"
+            # Use valid Entrez field tags for the pubmed database.
+            # [Gene] is not a valid PubMed field; use [Title/Abstract] instead.
+            query = (
+                f"{gene_symbol}[Title/Abstract] AND "
+                f"(pathogenic[Title/Abstract] OR variant[Title/Abstract] OR mutation[Title/Abstract])"
+            )
             logger.info(f"PubMed searching: {query}")
-            
+
             handle = Entrez.esearch(db="pubmed", term=query, retmax=max_results, sort="relevance")
             record = Entrez.read(handle)
             handle.close()
-            
+
             ids = record.get("IdList", [])
+            error_list = record.get("ErrorList", {})
+            if error_list:
+                logger.warning(f"PubMed Entrez errors for {gene_symbol}: {error_list}")
+
             logger.info(f"PubMed found {len(ids)} IDs for {gene_symbol}: {ids}")
             if not ids:
                 return []
-            
-            # Fetch abstracts
-            handle = Entrez.efetch(db="pubmed", id=",".join(ids), rettype="xml", retmode="xml")
-            articles = Entrez.read(handle)
-            handle.close()
-            
+
+            # Fetch abstracts with retry/backoff for NCBI rate limits
+            articles = None
+            last_error = None
+            for attempt in range(3):
+                try:
+                    # NCBI recommends 0.34s between requests without API key;
+                    # be conservative, especially on shared Modal egress IP.
+                    if attempt > 0:
+                        sleep_seconds = 1.0 * (2 ** attempt)
+                        logger.info(f"PubMed efetch retry {attempt}/3 for {gene_symbol}: sleeping {sleep_seconds}s")
+                        time.sleep(sleep_seconds)
+
+                    handle = Entrez.efetch(db="pubmed", id=",".join(ids), rettype="xml", retmode="xml")
+                    articles = Entrez.read(handle)
+                    handle.close()
+                    break
+                except HTTPError as he:
+                    last_error = he
+                    logger.warning(f"PubMed efetch HTTPError (attempt {attempt + 1}/3): {he}")
+                    if he.code != 429:
+                        raise
+                except Exception as e:
+                    logger.warning(f"PubMed efetch error (attempt {attempt + 1}/3): {e}")
+                    raise
+
+            if articles is None:
+                logger.error(f"PubMed efetch FAILED after retries for {gene_symbol}: {last_error}")
+                return []
+
             results = []
             for article in articles.get("PubmedArticle", []):
                 try:
                     medline = article["MedlineCitation"]
                     article_data = medline["Article"]
-                    
+
                     pmid = str(medline["PMID"])
                     title = article_data.get("ArticleTitle", "")
-                    
+
                     # Get abstract text
                     abstract_parts = article_data.get("Abstract", {}).get("AbstractText", [])
                     if abstract_parts:
@@ -409,7 +444,7 @@ class PubMedRAG:
                             abstract = str(abstract_parts)
                     else:
                         abstract = ""
-                    
+
                     results.append({
                         "pmid": pmid,
                         "title": title,
@@ -418,7 +453,7 @@ class PubMedRAG:
                 except Exception as parse_err:
                     logger.warning(f"PubMed article parse error: {parse_err}")
                     continue
-            
+
             logger.info(f"PubMed returning {len(results)} articles for {gene_symbol}")
             return results
         except Exception as e:
