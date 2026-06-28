@@ -1,0 +1,282 @@
+Hi everyone. My name is Aditi and I'm
+joined here today with my co-authors on
+this project, Daniel, Ben, and Lucas to
+go through how to use and run Proto for
+biological design.
+>> Proto is a high-level programming
+language and tool platform for
+generative biology.
+The goal of Proto is to make it easier
+to compose biological AI models into
+design workflows without needing to
+rebuild a custom pipeline for every new
+task.
+Many biological design campaigns depend
+on a combination of sequence generators,
+predictive models, scoring functions,
+optimization algorithms, and downstream
+analysis tools.
+But these components are often difficult
+to install, configure, and connect.
+Proto provides a shared framework for
+bringing these tools together using four
+core primitives:
+sequences,
+constraints, generators, and optimizers.
+>> When you open the prototypes tab, you
+can see your existing designs.
+You can also use pre-built example
+programs.
+In this example, we will create our own.
+To start, we'll take a look at the Proto
+canvas, which is the graphical interface
+for building Proto programs.
+The canvas lets you work with the same
+four core pieces of Proto:
+sequences, constraints, generators, and
+optimizers,
+but as visual blocks that you can
+configure and connect.
+This makes it easier to see the
+structure of a design workflow,
+what sequence you're designing, what
+tools are scoring it, what model is
+generating candidates, and how the
+optimizer is guiding the search.
+For this demo, we'll build a simple
+promoter design workflow directly in the
+Proto canvas.
+The first primitive in Proto is a
+sequence.
+This is the biological sequence we want
+to design or modify.
+In this case, we'll use a DNA sequence
+because our goal is to design a short E.
+coli promoter.
+To start, I'll start by dragging a DNA
+sequence box onto the canvas.
+This block represents the candidate
+promoter sequence that the rest of the
+workflow will operate on.
+Within this block, you can do things
+like change the length, rename the
+segment,
+and specify an initial sequence to start
+with.
+For this example, we'll use a random
+sequence to start.
+The next primitive is a constraint.
+A constraint is a scoring function that
+tells Proto whether a candidate sequence
+has the properties we want.
+For promoter design, we care about
+whether the sequence looks promoter-like
+and whether it might be likely to drive
+transcription.
+For the purpose of this simple demo,
+I'll stick to adding basic constraints
+like the presence of a -35 and -10 sigma
+70 box motifs,
+and the basic sequence identity metrics
+like GC content.
+Each constraint gives Proto one signal
+about what makes a good promoter.
+The third primitive is a generator.
+A generator proposes new candidate
+sequences for Proto to evaluate.
+Here, I'll use random nucleotide
+mutation as a simple generator.
+Random nucleotide mutation makes small
+and random edits to the DNA sequence,
+which is useful for this demo because we
+can start from a randomly generated DNA
+sequence and explore variants till we
+converge on something that best meets
+our constraints.
+The final primitive is an optimizer.
+The optimizer coordinates the design
+loop.
+It takes candidates from the generator,
+evaluates them with constraints, and
+decides which candidates to keep.
+For this example, I'll use MCMC as the
+optimizer.
+MCMC is a good fit here because it can
+accept or reject mutations based on the
+combined constraint score,
+allowing the sequence to gradually move
+towards better promoter candidates while
+it's still exploring the candidate
+sequence space.
+Once these blocks are on the canvas,
+I'll connect them together. The DNA
+sequence is modified by the uniform
+mutation generator,
+scored by the promoter-related
+constraints,
+and optimized by MCMC.
+Then, we can run this workflow and have
+Proto search for promoter sequences that
+better satisfy the design objective. As
+you can see, the program is now running
+and generating an output energy graph
+demonstrating how the designs are
+converging to an optimum over the number
+of iterations we specified.
+In addition to allowing the program to
+run, you can also view sequence output
+metadata for each of the generated
+candidates, and inspect the outputs to
+determine how well they comply with your
+constraints.
+>> To assist with designing new programs in
+the front-end interface, users can open
+the Proto chat assistant on the right.
+This agent acts as an educational
+resource as well as a design co-pilot to
+guide users through the Proto language
+user interface.
+For example, the chat can help a user
+build a program from a biological design
+specification, discover appropriate
+constraints, generators, and optimizers
+for a desired task, fetch real
+biological data from public databases
+like the PDB, UniProt, NCBI, and provide
+scientific guidance on open-ended design
+tasks or questions.
+Let's see it in action by asking the
+chat to design a basic toy example.
+Our example prompt is, create a 500 base
+pair DNA sequence with 70 to 80% GC
+content and no homopolymers longer than
+four bases.
+The agent then reasons and explores our
+existing catalog of constraints,
+generators, optimizers, and example
+programs to identify the appropriate
+components required to assemble the
+program.
+As the agent reasons, users can inspect
+the reasoning traces and tool calls of
+the assistant to get a deeper
+understanding of how the agent gets to
+its final program design.
+Finally, the agent generates a program
+in the format that we expect.
+You can then import and visualize the
+program onto the canvas.
+If necessary, you can also tune the
+parameters or simply compile and run the
+program.
+>> To empower the programming layer I DT
+and Dan just showed you, we need to
+build a way to quickly run and compose a
+wide variety of tools and models.
+In addition to the optimization
+framework, we are also releasing Proto
+tools, an open-source code base
+containing ready-to-run local
+implementations of some of the most
+commonly utilized biological models.
+With one pip install command, scientists
+gain access to a massive range of tools
+including biological language models,
+structure predictors, inverse folding,
+sequence analysis, gene annotation,
+conformational dynamics, and genomic
+scoring, and more.
+Under the hood, every tool runs in its
+own automatically managed isolated
+environment, so all dependency wrangling
+is handled for you.
+Proto detects your GPU and drivers to
+install versions of the tools that
+actually work with your hardware. And
+because everything is managed
+separately, you can run all of the tools
+from the same code base.
+In addition, Proto tools implements
+extensive infrastructure for features
+such as device management and GPU
+fanout, making it easy to call tools in
+quick succession.
+We've linked our doc page here, so you
+can learn more.
+>> To make these tools even more
+accessible, we've also developed a
+cloud-hosted back-end that is reachable
+by the public through a graphical user
+interface on our website or through an
+MCP server built for interaction with
+coding agents.
+In this tutorial, we'll focus on
+interacting with proto tools through our
+website, where you will find a
+scrollable list of cards for each of the
+hosted tools we currently support.
+To sort through the catalog, you can
+filter by category to see the full
+design stack. Or if you already know
+what you want, just search by name.
+Let's see one run end to end.
+Let's go through a quick demo of the
+graphical interface for protein MPNN.
+Protein MPNN is an inverse folding
+model. Given a fixed three-dimensional
+protein backbone, it can predict amino
+acid sequences that are likely to fold
+into that shape.
+Let's use protein MPNN to sample some
+sequences that are likely to fold into
+the shape of green fluorescent protein,
+otherwise known as GFP.
+First, we need to specify the structure
+of GFP as an input. Here, I will do this
+as a PDB file I downloaded from the
+AlphaFold database.
+After we have uploaded the structure, we
+can visualize it in the interface.
+Before we start sampling new sequences,
+there's one thing we want to set up.
+Right in the center of the GFP barrel,
+three residues form its chromophore, the
+part of the protein that actually
+absorbs and emits light.
+In a wild-type GFP, these are residues
+serine 65,
+tyrosine 66, and glycine 67.
+We don't want protein MPNN to touch them
+because their identities are essential
+to the protein's function.
+So, rather than redesigning them, we
+will mark them as fixed positions.
+Using the field and specifying the range
+of 65 to 67 as fixed.
+Protein MPNN will then redesign every
+other residue around them while holding
+these three exactly as they are.
+We can also change any configuration
+settings that we can change on the
+Pythonic layer of the tool's code base.
+In this case, let's change the number of
+sequences we want Protein MPNN to return
+to us to 20.
+Then, we can click run.
+Once the tool has run to completion, we
+see our expected output. In pink, we see
+all the amino acids that were newly
+designed with the positions we fixed
+made visually distinct from them.
+Every tool hosted by Proto has curated
+input and output renderers to facilitate
+parsing at a glance.
+And that is Proto.
+Everything we've shown to you is open
+and available to everyone. We hope it
+makes biological design more composable
+and accessible so that science continues
+to be the centerpiece, not the setup.
+We're very excited to put this in the
+community's hands and can't wait to see
+what you build with it.
