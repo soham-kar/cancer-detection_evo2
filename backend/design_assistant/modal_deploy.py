@@ -47,6 +47,17 @@ app = modal.App(
 )
 
 # =============================================================================
+# Timeouts
+# =============================================================================
+
+# Maximum time (seconds) the Modal endpoint will spend processing a request.
+# Must be >= the longest expected Nemotron call (180s) plus graph/strategy overhead.
+MODAL_ENDPOINT_TIMEOUT_SECONDS = 240
+
+# Timeout for individual Nemotron HTTP calls (non-streaming and streaming).
+NEMOTRON_HTTP_TIMEOUT_SECONDS = 180
+
+# =============================================================================
 # Service class
 # =============================================================================
 
@@ -90,9 +101,27 @@ class DesignAssistantService:
         Request body: Full variant report dict (already snake_case normalized).
         Response: { strategy_class, confidence, reasoning_summary, evidence_bullets, ... }
         """
+        import asyncio
+
         try:
-            result = self.assistant.analyze(report)
+            result = await asyncio.wait_for(
+                self._analyze_async(report),
+                timeout=MODAL_ENDPOINT_TIMEOUT_SECONDS,
+            )
             return result
+        except asyncio.TimeoutError:
+            return {
+                "error": f"Analysis timed out after {MODAL_ENDPOINT_TIMEOUT_SECONDS}s",
+                "strategy_class": "observe_and_reassess",
+                "confidence": "low",
+                "reasoning_summary": "The analysis took too long to complete. This usually happens when the LLM provider is slow. Please try again.",
+                "evidence_bullets": [],
+                "recommended_next_steps": [],
+                "limitations": ["Request timed out."],
+                "generated_at": "",
+                "evidence_summary": "Timeout",
+                "rule_based": True,
+            }
         except Exception as e:
             return {
                 "error": str(e),
@@ -106,6 +135,12 @@ class DesignAssistantService:
                 "evidence_summary": "Error during analysis",
                 "rule_based": True,
             }
+
+    async def _analyze_async(self, report: dict) -> dict:
+        """Run the synchronous analyzer in a thread pool to avoid blocking."""
+        import asyncio
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(None, self.assistant.analyze, report)
 
     # ------------------------------------------------------------------
     # POST /chat — SSE streaming conversational Q&A (Phase 12)
@@ -143,9 +178,16 @@ class DesignAssistantService:
                     *messages,
                 ]
 
-                # Stream thinking + answer
-                async for event in self._stream_nemotron(full_messages):
-                    yield event
+                # Stream thinking + answer with a total timeout
+                stream_task = asyncio.create_task(
+                    self._stream_nemotron_async(full_messages)
+                )
+                try:
+                    async for event in stream_task:
+                        yield event
+                except asyncio.TimeoutError:
+                    yield f"event: error\ndata: {json.dumps({'error': f'Chat timed out after {MODAL_ENDPOINT_TIMEOUT_SECONDS}s'})}\n\n"
+                    return
 
             except Exception as e:
                 yield f"event: error\ndata: {json.dumps({'error': str(e)})}\n\n"
@@ -202,8 +244,16 @@ and their therapeutic implications.
 - Keep answers clear and evidence-based
 """
 
-    async def _stream_nemotron(self, messages: list):
-        """Stream Nemotron response as SSE events."""
+    async def _stream_nemotron_async(self, messages: list):
+        """Run the synchronous Nemotron streamer in a thread pool."""
+        import asyncio
+        loop = asyncio.get_running_loop()
+        gen = await loop.run_in_executor(None, self._stream_nemotron_sync, messages)
+        for event in gen:
+            yield event
+
+    def _stream_nemotron_sync(self, messages: list):
+        """Stream Nemotron response as SSE events (synchronous generator)."""
         import json as _json
         import requests
 
@@ -225,7 +275,7 @@ and their therapeutic implications.
         }
 
         response = requests.post(
-            url, headers=headers, json=payload, stream=True, timeout=300
+            url, headers=headers, json=payload, stream=True, timeout=NEMOTRON_HTTP_TIMEOUT_SECONDS
         )
 
         thinking_done = False
