@@ -16,7 +16,10 @@ import { GeneInformation } from "./gene-information";
 import { GeneSequence } from "./gene-sequence";
 import KnownVariants from "./known-variants";
 import { VariantComparisonModal } from "./variant-comparison-modal";
-import { AnalysisHistory, type AnalysisHistoryHandle } from "./analysis-history";
+import {
+  AnalysisHistory,
+  type AnalysisHistoryHandle,
+} from "./analysis-history";
 import VariantAnalysis, {
   type VariantAnalysisHandle,
 } from "./variant-analysis";
@@ -231,7 +234,7 @@ export default function GeneViewer({
   return (
     <div className="space-y-6">
       <button
-        className="group flex items-center gap-2 px-4 py-2 text-sm font-medium text-slate-600 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 hover:text-slate-900 transition-all shadow-sm mb-2 cursor-pointer"
+        className="group mb-2 flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-600 shadow-sm transition-all hover:bg-slate-50 hover:text-slate-900"
         onClick={onClose}
       >
         <ArrowLeft className="h-4 w-4 transition-transform group-hover:-translate-x-1" />
@@ -262,7 +265,10 @@ export default function GeneViewer({
         onAnalysisComplete={handleAnalysisComplete}
       />
 
-      <AnalysisHistory ref={analysisHistoryRef} />
+      <AnalysisHistory
+        ref={analysisHistoryRef}
+        currentGeneSymbol={gene.symbol}
+      />
 
       <GeneSequence
         geneBounds={geneBounds}

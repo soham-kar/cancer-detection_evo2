@@ -52,15 +52,21 @@ export default function KnownVariants({
   onAnalysisComplete?: () => void;
 }) {
   // Track which positions have been analyzed by this user
-  const [analyzedReports, setAnalyzedReports] = useState<Map<number, SavedReport>>(new Map());
-  const [selectedReport, setSelectedReport] = useState<SavedReport | null>(null);
+  const [analyzedReports, setAnalyzedReports] = useState<
+    Map<number, SavedReport>
+  >(new Map());
+  const [selectedReport, setSelectedReport] = useState<SavedReport | null>(
+    null,
+  );
   const [enableISM, setEnableISM] = useState(false);
 
   // Fetch user's analyzed variants for this gene
   useEffect(() => {
     const fetchAnalyzedVariants = async () => {
       try {
-        const response = await fetch(`/api/history?gene=${encodeURIComponent(gene.symbol)}`);
+        const response = await fetch(
+          `/api/history?gene=${encodeURIComponent(gene.symbol)}`,
+        );
         if (response.ok) {
           const data = await response.json();
           const reportsMap = new Map<number, SavedReport>();
@@ -77,7 +83,9 @@ export default function KnownVariants({
   }, [gene.symbol]);
 
   const getAnalyzedReport = (variant: ClinvarVariant): SavedReport | null => {
-    const position = variant.location ? parseInt(variant.location.replaceAll(",", "")) : null;
+    const position = variant.location
+      ? parseInt(variant.location.replaceAll(",", ""))
+      : null;
     if (position !== null && analyzedReports.has(position)) {
       return analyzedReports.get(position) || null;
     }
@@ -89,7 +97,11 @@ export default function KnownVariants({
   };
 
   const analyzeVariant = async (variant: ClinvarVariant) => {
-    let variantDetails: { position: number | null; reference: string; alternative: string } | null = null;
+    let variantDetails: {
+      position: number | null;
+      reference: string;
+      alternative: string;
+    } | null = null;
     const position = variant.location
       ? parseInt(variant.location.replaceAll(",", ""))
       : null;
@@ -103,30 +115,47 @@ export default function KnownVariants({
       if (refAltMatch && refAltMatch.length === 3 && position) {
         const transcriptRef = refAltMatch[1]!;
         const transcriptAlt = refAltMatch[2]!;
-        
-        console.log(`🧬 [ClinVar-Table] Analyzing ${gene.symbol} position ${position}: transcript ${transcriptRef}>${transcriptAlt}`);
-        
+
+        console.log(
+          `🧬 [ClinVar-Table] Analyzing ${gene.symbol} position ${position}: transcript ${transcriptRef}>${transcriptAlt}`,
+        );
+
         // Fetch genomic reference to detect strand orientation
-        const genomicRef = await fetchSingleBase(gene.chrom, position, genomeId);
-        console.log(`🧬 [ClinVar-Table] Genomic reference at position ${position}: ${genomicRef}`);
-        
+        const genomicRef = await fetchSingleBase(
+          gene.chrom,
+          position,
+          genomeId,
+        );
+        console.log(
+          `🧬 [ClinVar-Table] Genomic reference at position ${position}: ${genomicRef}`,
+        );
+
         // Check if gene is on minus strand
-        const isMinusStrand = genomicRef && transcriptRef && 
-                              genomicRef.toUpperCase() !== transcriptRef.toUpperCase();
-        
+        const isMinusStrand =
+          genomicRef &&
+          transcriptRef &&
+          genomicRef.toUpperCase() !== transcriptRef.toUpperCase();
+
         let finalAlt = transcriptAlt;
-        
+
         // For minus-strand genes, reverse complement the alternative
         if (isMinusStrand) {
-          const complement: Record<string, string> = { 
-            'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' 
+          const complement: Record<string, string> = {
+            A: "T",
+            T: "A",
+            C: "G",
+            G: "C",
           };
           finalAlt = complement[transcriptAlt.toUpperCase()] || transcriptAlt;
-          console.log(`🧬 [ClinVar-Table] Minus-strand detected! Transcript: ${transcriptRef}>${transcriptAlt}, Genomic: ${genomicRef}>${finalAlt}`);
+          console.log(
+            `🧬 [ClinVar-Table] Minus-strand detected! Transcript: ${transcriptRef}>${transcriptAlt}, Genomic: ${genomicRef}>${finalAlt}`,
+          );
         } else {
-          console.log(`🧬 [ClinVar-Table] Plus-strand (or detection failed), using transcript alt: ${transcriptAlt}`);
+          console.log(
+            `🧬 [ClinVar-Table] Plus-strand (or detection failed), using transcript alt: ${transcriptAlt}`,
+          );
         }
-        
+
         variantDetails = {
           position,
           reference: transcriptRef,
@@ -138,10 +167,13 @@ export default function KnownVariants({
       // For deletions, we send position and let backend fetch reference
       variantDetails = {
         position,
-        reference: "",  // Backend will fetch from genome
+        reference: "", // Backend will fetch from genome
         alternative: "", // Empty = deletion
       };
-    } else if (variationType.includes("insertion") || variationType.includes("duplication")) {
+    } else if (
+      variationType.includes("insertion") ||
+      variationType.includes("duplication")
+    ) {
       // Insertion/Duplication: Try to parse inserted sequence from title
       // Pattern examples: "insATG", "dupA"
       const insMatch = variant.title.match(/ins([ATCG]+)/i);
@@ -167,7 +199,10 @@ export default function KnownVariants({
           alternative: "N", // Placeholder
         };
       }
-    } else if (variationType.includes("indel") || variationType.includes("delins")) {
+    } else if (
+      variationType.includes("indel") ||
+      variationType.includes("delins")
+    ) {
       // Complex indels like "AT>GTC" (delins = deletion-insertion)
       const refAltMatch = variant.title.match(/([ATCG]+)>([ATCG]+)/i);
       if (refAltMatch && refAltMatch.length === 3) {
@@ -219,8 +254,10 @@ export default function KnownVariants({
 
       // Trigger history refresh
       onAnalysisComplete?.();
+      // Notify other components that a new report was saved
+      window.dispatchEvent(new CustomEvent("analysis-saved"));
       // Trigger credits refresh
-      window.dispatchEvent(new CustomEvent('credits-updated'));
+      window.dispatchEvent(new CustomEvent("credits-updated"));
 
       showComparison(updatedVariant);
     } catch (error) {
@@ -239,14 +276,20 @@ export default function KnownVariants({
 
     if (t.includes("single nucleotide") || t.includes("snv")) {
       styles = "bg-blue-50 text-blue-700 border border-blue-100";
-    } else if (t.includes("deletion") || t.includes("indel") || t.includes("frameshift")) {
+    } else if (
+      t.includes("deletion") ||
+      t.includes("indel") ||
+      t.includes("frameshift")
+    ) {
       styles = "bg-rose-50 text-rose-700 border border-rose-100";
     } else if (t.includes("duplication") || t.includes("insertion")) {
       styles = "bg-amber-50 text-amber-700 border border-amber-100";
     }
 
     return (
-      <span className={`px-2.5 py-0.5 rounded-full text-xs font-medium whitespace-nowrap ${styles}`}>
+      <span
+        className={`rounded-full px-2.5 py-0.5 text-xs font-medium whitespace-nowrap ${styles}`}
+      >
         {type}
       </span>
     );
@@ -257,15 +300,19 @@ export default function KnownVariants({
       <Card className="gap-0 border-none bg-white py-0 shadow-sm">
         <CardHeader className="flex flex-row items-center justify-between pt-4 pb-2">
           <CardTitle className="text-sm font-normal text-[#3c4f3d]/70">
-            Known Variants in Gene (<span className="font-semibold font-mono text-[#3c4f3d]">{gene.symbol}</span>) from ClinVar
+            Known Variants in Gene (
+            <span className="font-mono font-semibold text-[#3c4f3d]">
+              {gene.symbol}
+            </span>
+            ) from ClinVar
           </CardTitle>
           <div className="flex items-center gap-3">
-            <label className="flex items-center gap-1.5 cursor-pointer select-none">
+            <label className="flex cursor-pointer items-center gap-1.5 select-none">
               <input
                 type="checkbox"
                 checked={enableISM}
                 onChange={(e) => setEnableISM(e.target.checked)}
-                className="h-3 w-3 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                className="h-3 w-3 cursor-pointer rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
               <span className="text-[10px] text-slate-500">ISM Scan</span>
             </label>
@@ -295,21 +342,21 @@ export default function KnownVariants({
           ) : clinvarVariants.length > 0 ? (
             <div className="relative">
               {/* Scroll hint gradient - shows there's more content */}
-              <div className="pointer-events-none absolute right-0 top-0 bottom-0 w-8 bg-gradient-to-l from-white to-transparent z-10 md:hidden"></div>
+              <div className="pointer-events-none absolute top-0 right-0 bottom-0 z-10 w-8 bg-gradient-to-l from-white to-transparent md:hidden"></div>
               <div className="h-96 max-h-96 overflow-x-auto overflow-y-scroll rounded-md border border-[#3c4f3d]/5">
-                <Table className="min-w-[600px] w-full table-fixed">
+                <Table className="w-full min-w-[600px] table-fixed">
                   <TableHeader className="sticky top-0 z-10">
                     <TableRow className="bg-[#e9eeea]/80 hover:bg-[#e9eeea]/30">
-                      <TableHead className="py-2 pl-6 text-left text-xs font-medium text-[#3c4f3d] w-[40%]">
+                      <TableHead className="w-[40%] py-2 pl-6 text-left text-xs font-medium text-[#3c4f3d]">
                         Variant
                       </TableHead>
-                      <TableHead className="py-2 text-left text-xs font-medium text-[#3c4f3d] w-[20%]">
+                      <TableHead className="w-[20%] py-2 text-left text-xs font-medium text-[#3c4f3d]">
                         Type
                       </TableHead>
-                      <TableHead className="py-2 text-left text-xs font-medium text-[#3c4f3d] w-[25%]">
+                      <TableHead className="w-[25%] py-2 text-left text-xs font-medium text-[#3c4f3d]">
                         Clinical Significance
                       </TableHead>
-                      <TableHead className="py-2 pr-2 text-xs font-medium text-[#3c4f3d] text-center w-[15%]">
+                      <TableHead className="w-[15%] py-2 pr-2 text-center text-xs font-medium text-[#3c4f3d]">
                         Actions
                       </TableHead>
                     </TableRow>
@@ -318,14 +365,16 @@ export default function KnownVariants({
                     {clinvarVariants.map((variant) => (
                       <TableRow
                         key={variant.clinvar_id}
-                        className="border-b border-[#3c4f3d]/5 hover:bg-slate-50/50 transition-colors"
+                        className="border-b border-[#3c4f3d]/5 transition-colors hover:bg-slate-50/50"
                       >
-                        <TableCell className="py-2 pl-6 align-middle w-[40%]">
+                        <TableCell className="w-[40%] py-2 pl-6 align-middle">
                           <div className="flex items-center gap-1.5 text-xs font-medium text-[#3c4f3d]">
                             {isAlreadyAnalyzed(variant) && (
                               <button
-                                onClick={() => setSelectedReport(getAnalyzedReport(variant))}
-                                className="flex items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 hover:bg-emerald-200 transition-colors cursor-pointer"
+                                onClick={() =>
+                                  setSelectedReport(getAnalyzedReport(variant))
+                                }
+                                className="flex cursor-pointer items-center gap-0.5 rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 transition-colors hover:bg-emerald-200"
                                 title="Click to view saved report"
                               >
                                 <CheckCircle className="h-3 w-3" />
@@ -352,10 +401,10 @@ export default function KnownVariants({
                             </Button>
                           </div>
                         </TableCell>
-                        <TableCell className="py-2 text-xs align-middle w-[20%]">
+                        <TableCell className="w-[20%] py-2 align-middle text-xs">
                           {getTypeBadge(variant.variation_type)}
                         </TableCell>
-                        <TableCell className="py-2 text-xs align-middle w-[25%]">
+                        <TableCell className="w-[25%] py-2 align-middle text-xs">
                           <div
                             className={`w-fit rounded-md px-2 py-1 text-center font-normal ${getClassificationColorClasses(variant.classification)}`}
                           >
@@ -367,16 +416,18 @@ export default function KnownVariants({
                                 className={`flex w-fit items-center gap-1 rounded-md px-2 py-1 text-center ${getClassificationColorClasses(variant.evo2Result.prediction)}`}
                               >
                                 <Shield className="h-3 w-3" />
-                                <span>Evo2: {variant.evo2Result.prediction}</span>
+                                <span>
+                                  Evo2: {variant.evo2Result.prediction}
+                                </span>
                               </div>
                             </div>
                           )}
                         </TableCell>
-                        <TableCell className="py-2 text-xs align-middle text-center w-[15%] pr-2">
+                        <TableCell className="w-[15%] py-2 pr-2 text-center align-middle text-xs">
                           <div className="flex justify-center">
                             {!variant.evo2Result ? (
                               <button
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-[#de8246] border border-[#de8246]/30 rounded-lg hover:bg-[#de8246]/10 transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg border border-[#de8246]/30 px-3 py-1.5 text-xs font-medium text-[#de8246] transition-colors hover:bg-[#de8246]/10 disabled:cursor-not-allowed disabled:opacity-50"
                                 disabled={variant.isAnalyzing}
                                 onClick={() => analyzeVariant(variant)}
                                 title="Run Evo2 inference on Modal H100"
@@ -395,7 +446,7 @@ export default function KnownVariants({
                               </button>
                             ) : (
                               <button
-                                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-green-700 bg-green-50 rounded-lg hover:bg-green-100 transition-colors cursor-pointer"
+                                className="inline-flex cursor-pointer items-center gap-1.5 rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700 transition-colors hover:bg-green-100"
                                 onClick={() => showComparison(variant)}
                                 title="View Evo2 prediction vs ClinVar classification"
                               >
