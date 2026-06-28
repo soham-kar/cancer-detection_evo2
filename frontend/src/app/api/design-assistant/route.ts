@@ -1,8 +1,14 @@
 // =============================================================================
 // Design Assistant API Route
 // =============================================================================
-// Calls the HelixDesign backend (Python) to analyze a variant report and
-// return therapeutic strategy recommendations.
+// Calls the HelixDesign backend to analyze a variant report and return
+// therapeutic strategy recommendations.
+//
+// PRODUCTION: Calls Modal-deployed FastAPI service via HTTP
+//   → https://<user>--design-assistant-analyze.modal.run
+//
+// DEVELOPMENT: Falls back to local Python subprocess if DESIGN_ASSISTANT_URL
+//   is not set (backward compatible with existing dev workflow).
 //
 // The Python backend lives in backend/design_assistant/ and uses:
 //   - Rule-based strategy selection (fast, always available)
@@ -16,7 +22,16 @@ import type { NextRequest } from "next/server";
 import { auth } from "@clerk/nextjs/server";
 import { spawn } from "child_process";
 import path from "path";
-import fs from "fs";
+
+// =============================================================================
+// Configuration
+// =============================================================================
+
+/** Modal-deployed design assistant URL. Set in production (Vercel env). */
+const DESIGN_ASSISTANT_URL = process.env.DESIGN_ASSISTANT_ANALYZE_URL;
+
+/** Timeout for Modal HTTP calls (Nemotron can take ~30s). */
+const MODAL_TIMEOUT_MS = 120_000;
 
 // =============================================================================
 // POST /api/design-assistant
@@ -43,7 +58,7 @@ export async function POST(request: NextRequest) {
     // --- Normalize camelCase → snake_case for Python backend ---
     const normalized = normalizeReport(report);
 
-    // --- Call Python backend ---
+    // --- Call design assistant (Modal HTTP or local subprocess) ---
     const result = await callDesignAssistant(normalized);
 
     return NextResponse.json(result);
@@ -60,10 +75,66 @@ export async function POST(request: NextRequest) {
 }
 
 // =============================================================================
-// Python backend call
+// Design assistant call: Modal HTTP (production) or subprocess (dev fallback)
 // =============================================================================
 
 async function callDesignAssistant(
+  report: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  // --- Production path: Modal HTTP ---
+  if (DESIGN_ASSISTANT_URL) {
+    return callDesignAssistantViaHttp(report);
+  }
+
+  // --- Development path: local Python subprocess ---
+  console.log("[design-assistant] DESIGN_ASSISTANT_URL not set, using local subprocess");
+  return callDesignAssistantViaSubprocess(report);
+}
+
+// ---------------------------------------------------------------------------
+// Production: HTTP call to Modal-deployed FastAPI service
+// ---------------------------------------------------------------------------
+
+async function callDesignAssistantViaHttp(
+  report: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MODAL_TIMEOUT_MS);
+
+  try {
+    const response = await fetch(DESIGN_ASSISTANT_URL!, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(report),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => "Unknown error");
+      throw new Error(
+        `Design assistant returned ${response.status}: ${errorText.slice(0, 300)}`,
+      );
+    }
+
+    const result = await response.json();
+    return result as Record<string, unknown>;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      throw new Error(
+        `Design assistant timed out after ${MODAL_TIMEOUT_MS / 1000}s`,
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Development: local Python subprocess (backward compatible)
+// ---------------------------------------------------------------------------
+
+async function callDesignAssistantViaSubprocess(
   report: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
   return new Promise((resolve, reject) => {
@@ -81,7 +152,6 @@ async function callDesignAssistant(
         ...process.env,
         PYTHONPATH: path.join(process.cwd(), "..", "backend"),
         PYTHONUNBUFFERED: "1",
-        NVIDIA_API_KEY: loadNvidiaKey(),
       },
       stdio: ["pipe", "pipe", "pipe"],
     });
@@ -245,32 +315,4 @@ function normalizeReport(
   }
 
   return normalized;
-}
-
-// =============================================================================
-// NVIDIA API key loader
-// =============================================================================
-
-function loadNvidiaKey(): string {
-  // Try process.env first (Next.js loads .env.local automatically)
-  if (process.env.NVIDIA_API_KEY) {
-    return process.env.NVIDIA_API_KEY;
-  }
-
-  // Fallback: read directly from .env.local
-  const envPath = path.join(process.cwd(), ".env.local");
-  try {
-    const content = fs.readFileSync(envPath, "utf-8");
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
-      if (trimmed.startsWith("NVIDIA_API_KEY=")) {
-        const value = trimmed.slice("NVIDIA_API_KEY=".length).trim().replace(/^["']|["']$/g, "");
-        if (value) return value;
-      }
-    }
-  } catch {
-    // File not found or unreadable
-  }
-
-  return "";
 }
