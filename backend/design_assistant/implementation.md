@@ -4,7 +4,7 @@
 >
 > GitHub: [https://github.com/soham-kar/cancer-detection_evo2](https://github.com/soham-kar/cancer-detection_evo2)
 >
-> Built by Soham Kar · Last updated: 2026-06-28
+> Built by Soham Kar · Last updated: 2026-06-29
 
 ---
 
@@ -18,15 +18,16 @@
 6. [Evidence Graph Design](#6-evidence-graph-design)
 7. [LLM Integration — Nemotron-3 Ultra 550B](#7-llm-integration--nemotron-3-ultra-550b)
 8. [Frontend Integration](#8-frontend-integration)
-9. [Global Chatbot UX (Phase 12)](#9-global-chatbot-ux-phase-12)
-10. [Proto-Tools Integration (Phase 10)](#10-proto-tools-integration-phase-10)
-11. [Implementation Phases & Roadmap](#11-implementation-phases--roadmap)
-12. [References & Papers](#12-references--papers)
-13. [Vlogs, Talks & Tutorials](#13-vlogs-talks--tutorials)
-14. [Code Resources & GitHub Links](#14-code-resources--github-links)
-15. [API Shape & Contracts](#15-api-shape--contracts)
-16. [Acceptance Criteria](#16-acceptance-criteria)
-17. [Risks, Constraints & Future Work](#17-risks-constraints--future-work)
+9. [Nemotron-3 Ultra 550B — Capability Model](#9-nemotron-3-ultra-550b--capability-model)
+10. [Global Chatbot UX (Phase 12)](#10-global-chatbot-ux-phase-12)
+11. [Proto-Tools Integration (Phase 10)](#11-proto-tools-integration-phase-10)
+12. [Implementation Phases & Roadmap](#12-implementation-phases--roadmap)
+13. [References & Papers](#13-references--papers)
+14. [Vlogs, Talks & Tutorials](#14-vlogs-talks--tutorials)
+15. [Code Resources & GitHub Links](#15-code-resources--github-links)
+16. [API Shape & Contracts](#16-api-shape--contracts)
+17. [Acceptance Criteria](#17-acceptance-criteria)
+18. [Risks, Constraints & Future Work](#18-risks-constraints--future-work)
 
 ---
 
@@ -824,9 +825,219 @@ const fieldMap = {
 
 ---
 
-## 9. Global Chatbot UX (Phase 12)
+## 9. Nemotron-3 Ultra 550B — Capability Model for the Chatbot
 
-### 9.1 Design Rationale
+> **Model:** NVIDIA Nemotron-3 Ultra 550B
+> **Architecture:** Hybrid Mamba (SSM) + Transformer + Mixture of Experts (MoE)
+> **Context Window:** 1,000,000 tokens
+> **API:** `https://integrate.api.nvidia.com/v1` (OpenAI-compatible chat completions)
+
+### 9.1 Why This Changes Everything
+
+The 550B model is not just a bigger LLM. Each architectural component unlocks a specific capability that directly maps to variant interpretation and therapeutic design:
+
+| Architectural Feature | What It Unlocks | Chatbot Capability |
+|----------------------|-----------------|-------------------|
+| **1M token context** | Full variant report + ISM scan + all 8 evidence sources + PubMed abstracts + UniProt entry + gnomAD breakdowns | "Whole-report reasoning" — no information loss from summarization |
+| **Mamba backbone** | Linear O(n) complexity on sequence length | Full gene sequences (BRCA1 = 125K bases), multi-gene panels, genomic neighborhoods |
+| **Mixture of Experts (MoE)** | Different expert sub-networks activate per query type | Single model handles clinical genetics, molecular biology, therapeutic design, statistics, literature synthesis, and experimental design |
+| **Native tool calling** | Model decides what it needs and calls tools autonomously | "I need SpliceAI here" → calls it → incorporates result — all without pre-programmed logic |
+| **Agentic reasoning** | Multi-step planning and self-correction | "Design an ASO → check off-targets → suggest modifications → iterate" |
+
+### 9.2 MoE Expert Domains
+
+The same 550B model activates different expert sub-networks depending on the query:
+
+| Expert Domain | Activated By | Example Query |
+|---|---|---|
+| **Clinical genetics** | ACMG criteria, ClinVar history, classification | "Why is this classified as VUS and not likely pathogenic?" |
+| **Molecular biology** | Protein domains, PTMs, interaction networks | "How does this missense in the RING domain affect E3 ligase activity?" |
+| **Therapeutic design** | ASO, CRISPR, small molecule, binder design | "Design an ASO that skips the exon containing this nonsense variant" |
+| **Population genetics** | gnomAD frequencies, ancestry, founder effects | "Is this variant enriched in any specific population?" |
+| **Literature synthesis** | PubMed abstracts, cross-referencing | "Has anyone reported a similar variant in any DNA repair gene?" |
+| **Experimental design** | Validation protocols, assay selection | "What experiments would confirm loss of function?" |
+
+### 9.3 Hybrid Tool-Calling Architecture
+
+**Decision:** Pre-compute always-useful tools at report load time; allow autonomous tool calls for deeper investigation.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    REPORT LOADED (user opens a variant)          │
+│                                                                  │
+│  ┌───────────────────────┐                                       │
+│  │  PRE-COMPUTE (sync)   │  ← Runs automatically, ~5-10s         │
+│  │                       │                                       │
+│  │  • SpliceAI           │  (if near splice site ±50bp)          │
+│  │  • UniProt domains    │  (always)                             │
+│  │  • gnomAD breakdown   │  (always)                             │
+│  │  • AlphaFold metadata │  (if missense)                        │
+│  └───────┬───────────────┘                                       │
+│          │                                                       │
+│          ▼                                                       │
+│  ┌───────────────────────────────────────────────────────────┐  │
+│  │  FULL REPORT CONTEXT (~50K-200K tokens)                    │  │
+│  │                                                             │  │
+│  │  • Complete variant report (all fields, not summarized)     │  │
+│  │  • Full ISM scan data (all positions, not just top hits)    │  │
+│  │  • All 8 evidence sources in full                           │  │
+│  │  • Pre-computed tool results (SpliceAI, UniProt, etc.)     │  │
+│  │  • PubMed abstracts (not just titles)                       │  │
+│  │  • gnomAD population-specific frequencies                   │  │
+│  └───────────────────────────────────────────────────────────┘  │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────┐
+│                    USER ASKS A QUESTION                           │
+│                                                                  │
+│  ┌───────────────────────┐                                       │
+│  │  MODEL REASONS        │  ← Chain-of-thought (streamed)        │
+│  │                       │                                       │
+│  │  "Let me check what   │                                       │
+│  │   we know about this  │                                       │
+│  │   variant..."         │                                       │
+│  └───────┬───────────────┘                                       │
+│          │                                                       │
+│          ▼                                                       │
+│  ┌──────────────────────────────────────┐                        │
+│  │  CAN I ANSWER FROM PRE-COMPUTED DATA? │                        │
+│  │                                       │                        │
+│  │  YES ──► Instant response            │                        │
+│  │  NO  ──► Model calls tools            │                        │
+│  └──────────────────────────────────────┘                        │
+│          │ (NO)                                                  │
+│          ▼                                                       │
+│  ┌───────────────────────┐                                       │
+│  │  AUTONOMOUS TOOL CALL │  ← Model decides what it needs        │
+│  │                       │                                       │
+│  │  • AlphaFold structure│  "I need the 3D structure"            │
+│  │  • PubMed deep search │  "Let me search for similar cases"    │
+│  │  • ESMFold            │  "No structure exists, let me fold"   │
+│  │  • pDockQ2            │  "Let me check binding interface"     │
+│  └───────┬───────────────┘                                       │
+│          │                                                       │
+│          ▼                                                       │
+│  ┌───────────────────────┐                                       │
+│  │  FINAL RESPONSE       │  ← Evidence-grounded, with citations  │
+│  └───────────────────────┘                                       │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+**Why hybrid beats pure-autonomous:**
+- Common questions ("What domains?") answer instantly from pre-computed data
+- Model still has freedom to go deeper when needed
+- Pre-computation runs in background while user reads the report
+- Tool call budget prevents runaway latency (max 3 autonomous calls per turn)
+
+### 9.4 Streaming + Chain-of-Thought
+
+**Decision:** Responses stream token-by-token with visible chain-of-thought reasoning.
+
+The Nemotron API supports `stream: true` with the OpenAI-compatible format. The chatbot will render two distinct phases:
+
+```
+┌──────────────────────────────────────────────┐
+│  🧠 Thinking...                              │
+│                                              │
+│  Let me analyze this BRCA1 variant at        │
+│  position 43094169. The Evo2 delta score     │
+│  is -0.0014, which suggests weak             │
+│  evolutionary constraint. AlphaMissense      │
+│  classifies it as likely benign (0.27).      │
+│  However, I notice this position falls       │
+│  within the RING domain (residues 1-109).    │
+│  I should check if there are structural      │
+│  implications...                             │
+│                                              │
+│  [Thinking collapsed after response done]    │
+└──────────────────────────────────────────────┘
+┌──────────────────────────────────────────────┐
+│  💬 Answer                                   │
+│                                              │
+│  This BRCA1 variant (A>C at chr17:43094169)  │
+│  is currently classified as a VUS, but the   │
+│  evidence leans benign for these reasons:    │
+│                                              │
+│  1. Evo2-7B shows weak constraint...         │
+│  2. AlphaMissense predicts likely benign...  │
+│  3. However, its location in the RING        │
+│     domain warrants caution because...       │
+│                                              │
+│  I recommend observing and reassessing in    │
+│  6-12 months as new ClinVar submissions      │
+│  accumulate.                                 │
+└──────────────────────────────────────────────┘
+```
+
+**Streaming protocol:**
+
+```typescript
+// SSE (Server-Sent Events) from /api/chat
+interface ChatStreamEvent {
+  type: "thinking" | "answer" | "tool_call" | "done" | "error";
+  content?: string;          // token or full text
+  toolName?: string;         // e.g. "spliceai", "alphafold"
+  toolStatus?: "calling" | "completed" | "failed";
+  messageId?: string;        // for persistence
+}
+```
+
+**Why show chain-of-thought:**
+- Builds trust — user sees the model's reasoning, not just the conclusion
+- Debuggable — if the answer is wrong, the thinking reveals why
+- Educational — researchers learn how to think about variant interpretation
+- The 550B model's CoT is genuinely insightful, not just filler
+
+### 9.5 Conversation Persistence
+
+**Decision:** Full conversation history stored per-user, per-variant, with session resumption.
+
+```
+Database Schema (Prisma/SQLite):
+
+ChatSession {
+  id: string (UUID)
+  userId: string (Clerk user ID)
+  variantKey: string (e.g. "BRCA1-43094169-A-C")
+  title: string (auto-generated from first question)
+  createdAt: DateTime
+  updatedAt: DateTime
+}
+
+ChatMessage {
+  id: string (UUID)
+  sessionId: string (FK → ChatSession)
+  role: "user" | "assistant" | "system" | "tool"
+  content: string (full message text)
+  thinking: string? (chain-of-thought, if role=assistant)
+  toolCalls: JSON? (tool call details)
+  createdAt: DateTime
+}
+```
+
+**User experience:**
+1. User opens a variant → sees previous chat history for that variant (if any)
+2. Can start a "New Chat" or continue previous conversation
+3. Chat history survives logout/login (tied to Clerk user ID)
+4. Side panel shows recent chat sessions for quick switching
+5. 1M context means even very long conversations stay fully in memory
+
+### 9.6 Capability Tiers
+
+| Tier | Capabilities | When |
+|------|-------------|------|
+| **Tier 1: Smart Q&A** | Full report context, streaming CoT, pre-computed tools, session persistence, contextual suggestions | Phase 12 (build now) |
+| **Tier 2: Multi-Variant** | Compare variants, gene-panel analysis, pathway reasoning, population-aware analysis | Phase 14 (future) |
+| **Tier 3: Agentic Design** | Autonomous tool calling, multi-step design workflows, hypothesis generation, clinical trial matching | Phase 15 (future) |
+| **Tier 4: Autonomous Investigation** | Self-directed literature review, computational experiment design, report generation, longitudinal tracking | Phase 16 (future) |
+
+---
+
+## 10. Global Chatbot UX (Phase 12)
+
+### 10.1 Design Rationale
 
 The current **Design Therapeutics** tab inside the saved report modal is useful for a one-shot strategy summary, but it is not interactive and it is hidden behind multiple clicks. A global, always-visible chatbot provides:
 
@@ -834,8 +1045,10 @@ The current **Design Therapeutics** tab inside the saved report modal is useful 
 - **Context-aware Q&A** — suggestions change based on the active variant/report
 - **Non-intrusive layout** — opens as a right-side vertical panel that pushes the main content, not as an overlay
 - **Natural exploration** — researchers can ask follow-up questions while viewing the report
+- **Streaming with chain-of-thought** — users see the model's reasoning in real-time, building trust
+- **Persistent history** — conversations survive logout/login, tied to Clerk user ID
 
-### 9.2 Layout: Two Vertical Columns
+### 10.2 Layout: Two Vertical Columns
 
 The chatbot is **not** embedded inside the `ActiveVariantContext` provider or inside the main content. It is a separate UI layer that sits as a sibling to the main app layout.
 
@@ -862,40 +1075,46 @@ The chatbot is **not** embedded inside the `ActiveVariantContext` provider or in
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
-#### Open State
+#### Open State — Two Vertical Columns with CoT
 
 ```
-┌─────────────────────────────────────────────────────────────────────────────────────┐
-│                                                                                      │
-│  ┌────────────────────────────────────────────────────────────┐  ┌───────────────┐  │
-│  │                                                            │  │               │  │
-│  │  Main Content Area (narrower, pushed left)                 │  │  Chat Panel   │  │
-│  │                                                            │  │  (right col)  │  │
-│  │  ┌──────────────┐  ┌───────────────────────────────┐       │  │               │  │
-│  │  │ Gene List    │  │ Variant / Report / History    │       │  │  Suggestions  │  │
-│  │  │ • BRCA1      │  │                               │       │  │  • Why VUS?   │  │
-│  │  │ • TP53       │  │  [Saved report modal content  │       │  │  • Domains?   │  │
-│  │  │ • MSH2       │  │   shown here or as overlay]   │       │  │  • Strategy?  │  │
-│  │  │ ...          │  │                               │       │  │               │  │
-│  │  └──────────────┘  └───────────────────────────────┘       │  │  ───────────  │  │
-│  │                                                            │  │               │  │
-│  │                                                            │  │  Chat History │  │
-│  │                                                            │  │  User: ...    │  │
-│  │                                                            │  │  Bot: ...     │  │
-│  │                                                            │  │               │  │
-│  │                                                            │  │  ───────────  │  │
-│  │                                                            │  │               │  │
-│  │                                                            │  │  [Type...] [→]│  │
-│  │                                                            │  │               │  │
-│  └────────────────────────────────────────────────────────────┘  └───────────────┘  │
-│                                                                                      │
-│                                          ┌────┐                                      │
-│                                          │ ✕  │  ← button now closes panel           │
-│                                          └────┘                                      │
-└─────────────────────────────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                           │
+│  ┌──────────────────────────────────────────────────────────┐  ┌──────────────────────┐  │
+│  │                                                          │  │  🧠 HelixDesign Chat │  │
+│  │  Main Content Area (narrower, pushed left)               │  │                      │  │
+│  │                                                          │  │  ┌────────────────┐  │  │
+│  │  ┌──────────────┐  ┌──────────────────────────────┐     │  │  │ Suggestion chips│  │  │
+│  │  │ Gene List    │  │ Variant / Report / History    │     │  │  │ • Why VUS?     │  │  │
+│  │  │ • BRCA1      │  │                               │     │  │  │ • Domains?     │  │  │
+│  │  │ • TP53       │  │  [Saved report modal content  │     │  │  │ • Strategy?    │  │  │
+│  │  │ • MSH2       │  │   shown here or as overlay]   │     │  │  └────────────────┘  │  │
+│  │  │ ...          │  │                               │     │  │                      │  │
+│  │  └──────────────┘  └──────────────────────────────┘     │  │  ──────────────────  │  │
+│  │                                                          │  │                      │  │
+│  │                                                          │  │  🧠 Thinking...      │  │
+│  │                                                          │  │  "Let me analyze     │  │
+│  │                                                          │  │   this BRCA1 variant │  │
+│  │                                                          │  │   at position 43M..."│  │
+│  │                                                          │  │  [collapsed after    │  │
+│  │                                                          │  │   response done]     │  │
+│  │                                                          │  │                      │  │
+│  │                                                          │  │  💬 Answer           │  │
+│  │                                                          │  │  "This variant shows │  │
+│  │                                                          │  │   weak evolutionary  │  │
+│  │                                                          │  │   constraint..."     │  │
+│  │                                                          │  │                      │  │
+│  │                                                          │  │  ──────────────────  │  │
+│  │                                                          │  │  [Type...]      [→]  │  │
+│  └──────────────────────────────────────────────────────────┘  └──────────────────────┘  │
+│                                                                                           │
+│                                          ┌────┐                                           │
+│                                          │ ✕  │  ← button now closes panel                │
+│                                          └────┘                                           │
+└──────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### 9.3 CSS Layout
+### 10.3 CSS Layout
 
 ```css
 .app-shell {
@@ -912,7 +1131,7 @@ The chatbot is **not** embedded inside the `ActiveVariantContext` provider or in
 }
 
 .chat-column {
-  width: 380px;
+  width: 420px;        /* slightly wider for CoT display */
   flex-shrink: 0;
   border-left: 1px solid #e5e7eb;
   background: white;
@@ -932,7 +1151,7 @@ The chatbot is **not** embedded inside the `ActiveVariantContext` provider or in
 </div>
 ```
 
-### 9.4 Component Architecture
+### 10.4 Component Architecture
 
 ```
 frontend/src/app/layout.tsx
@@ -945,26 +1164,46 @@ frontend/src/app/layout.tsx
 │
 └─ ChatLayer (sibling to MainContent)
     ├─ ChatFloatingButton (bottom-right, always visible)
+    │   └─ shows unread indicator when new messages arrive
+    │
     └─ ChatSidePanel (slides/pushes from right when open)
-        ├─ SuggestionChips
+        ├─ ChatHeader
+        │   ├─ Session title (auto-generated)
+        │   ├─ New Chat button
+        │   └─ Session history dropdown
+        ├─ SuggestionChips (context-aware, disappear after first message)
         ├─ MessageList
-        └─ MessageInput
+        │   ├─ UserMessage
+        │   └─ AssistantMessage
+        │       ├─ ThinkingBlock (collapsible, streamed token-by-token)
+        │       ├─ ToolCallBlock (shown when model calls tools)
+        │       └─ AnswerBlock (streamed token-by-token)
+        └─ MessageInput (text area + send button, disabled during streaming)
 ```
 
-### 9.5 New Files Needed
+### 10.5 New Files Needed
 
 | File | Purpose |
 |------|---------|
-| `frontend/src/contexts/active-variant.tsx` | Data context only |
+| `frontend/src/contexts/active-variant.tsx` | Active variant data context |
 | `frontend/src/hooks/use-active-variant.ts` | Convenience hook |
-| `frontend/src/components/chat/chat-floating-button.tsx` | 💬 floating button |
-| `frontend/src/components/chat/chat-side-panel.tsx` | Right-side panel |
-| `frontend/src/components/chat/chat-message-list.tsx` | Conversation history |
+| `frontend/src/hooks/use-chat-stream.ts` | SSE stream consumer hook |
+| `frontend/src/components/chat/chat-floating-button.tsx` | 💬 floating button with unread badge |
+| `frontend/src/components/chat/chat-side-panel.tsx` | Right-side panel container |
+| `frontend/src/components/chat/chat-header.tsx` | Session title, new chat, history |
+| `frontend/src/components/chat/chat-message-list.tsx` | Scrollable message history |
+| `frontend/src/components/chat/chat-message.tsx` | Individual message (user or assistant) |
+| `frontend/src/components/chat/chat-thinking-block.tsx` | Collapsible CoT display |
+| `frontend/src/components/chat/chat-tool-call-block.tsx` | Tool call status indicator |
 | `frontend/src/components/chat/chat-suggestions.tsx` | Contextual suggestion chips |
-| `frontend/src/components/chat/chat-input.tsx` | Text input + send |
-| `frontend/src/app/api/chat/route.ts` | Conversational Q&A API |
+| `frontend/src/components/chat/chat-input.tsx` | Text input + send button |
+| `frontend/src/app/api/chat/route.ts` | SSE streaming chat API |
+| `frontend/src/app/api/chat/sessions/route.ts` | CRUD for chat sessions |
+| `backend/design_assistant/chat_agent.py` | Chat orchestrator with tool-calling |
+| `backend/design_assistant/precompute.py` | Background tool pre-computation |
+| `backend/design_assistant/stream_handler.py` | SSE event emitter |
 
-### 9.6 Context-Aware Suggestions
+### 10.6 Context-Aware Suggestions
 
 When a report is active, suggestions are generated client-side from the evidence graph:
 
@@ -991,7 +1230,9 @@ function getSuggestions(report: VariantReport): string[] {
 }
 ```
 
-### 9.7 API Contract: `POST /api/chat`
+### 10.7 API Contract: `POST /api/chat` (SSE Streaming)
+
+**Request:**
 
 ```json
 {
@@ -999,32 +1240,187 @@ function getSuggestions(report: VariantReport): string[] {
     { "role": "system", "content": "You are HelixDesign, a genomics assistant..." },
     { "role": "user", "content": "Why is this variant a VUS?" }
   ],
+  "sessionId": "uuid-or-null",
   "variantContext": {
     "geneSymbol": "BRCA1",
     "position": 43094169,
-    "report": { ... }
+    "reference": "A",
+    "alternative": "C",
+    "report": { /* FULL report, not summarized */ }
   }
 }
 ```
 
-The backend uses `nvidia_client.answer()` or a new `chat()` method with the full conversation history.
+**Response: SSE (Server-Sent Events)**
 
-### 9.8 Relationship to Design Therapeutics Tab
+```
+Content-Type: text/event-stream
+
+event: thinking
+data: {"token": "Let", "messageId": "msg_abc123"}
+
+event: thinking
+data: {"token": " me", "messageId": "msg_abc123"}
+
+event: thinking
+data: {"token": " analyze", "messageId": "msg_abc123"}
+
+... (streaming continues) ...
+
+event: thinking_done
+data: {"messageId": "msg_abc123", "fullThinking": "Let me analyze this BRCA1 variant..."}
+
+event: tool_call
+data: {"messageId": "msg_abc123", "toolName": "spliceai", "status": "calling"}
+
+event: tool_call
+data: {"messageId": "msg_abc123", "toolName": "spliceai", "status": "completed", "result": {"delta_score": 0.02}}
+
+event: answer
+data: {"token": "This", "messageId": "msg_abc123"}
+
+event: answer
+data: {"token": " BRCA1", "messageId": "msg_abc123"}
+
+... (streaming continues) ...
+
+event: done
+data: {"messageId": "msg_abc123", "sessionId": "sess_xyz789", "fullAnswer": "This BRCA1 variant..."}
+```
+
+**SSE Event Types:**
+
+| Event | Payload | When |
+|-------|---------|------|
+| `thinking` | `{token, messageId}` | CoT token being streamed |
+| `thinking_done` | `{messageId, fullThinking}` | CoT complete, ready to collapse |
+| `tool_call` | `{messageId, toolName, status, result?}` | Model calls or completes a tool |
+| `answer` | `{token, messageId}` | Answer token being streamed |
+| `done` | `{messageId, sessionId, fullAnswer}` | Response complete |
+| `error` | `{messageId, error}` | Something went wrong |
+
+### 10.8 Backend: Chat Agent with Hybrid Tool-Calling
+
+```python
+# backend/design_assistant/chat_agent.py
+
+class ChatAgent:
+    """Orchestrates chat with Nemotron-3 Ultra 550B + hybrid tool-calling."""
+
+    def __init__(self, nvidia_client: NvidiaClient, precomputed: PrecomputedTools):
+        self.llm = nvidia_client
+        self.precomputed = precomputed
+        self.tool_registry = ToolRegistry()
+
+    async def stream_response(
+        self,
+        messages: List[dict],
+        variant_context: dict,
+        session_id: str
+    ) -> AsyncGenerator[SSEEvent, None]:
+        """
+        1. Inject full report + pre-computed tools into system prompt
+        2. Stream chain-of-thought tokens
+        3. If model requests tools, execute them
+        4. Stream answer tokens
+        5. Persist to database
+        """
+        system_prompt = self._build_system_prompt(variant_context)
+
+        # Stream with tool-calling loop
+        async for event in self.llm.stream_chat(
+            messages=messages,
+            system=system_prompt,
+            tools=self.tool_registry.definitions,
+            temperature=0.1,
+            max_tokens=4096
+        ):
+            if event.type == "thinking":
+                yield SSEEvent("thinking", {"token": event.token, "messageId": msg_id})
+            elif event.type == "tool_call":
+                yield SSEEvent("tool_call", {"toolName": event.tool_name, "status": "calling"})
+                result = await self.tool_registry.execute(event.tool_name, event.args)
+                yield SSEEvent("tool_call", {"toolName": event.tool_name, "status": "completed", "result": result})
+            elif event.type == "answer":
+                yield SSEEvent("answer", {"token": event.token, "messageId": msg_id})
+
+        yield SSEEvent("done", {"messageId": msg_id, "sessionId": session_id})
+
+    def _build_system_prompt(self, ctx: dict) -> str:
+        """Build the 1M-context system prompt with full report + pre-computed tools."""
+        return f"""You are HelixDesign, an expert genomics and therapeutic design assistant
+powered by Nemotron-3 Ultra 550B. You have access to the complete variant report
+and pre-computed bioinformatics tools.
+
+## Variant Report (Full Context)
+{json.dumps(ctx['report'], indent=2)}
+
+## Pre-Computed Tool Results
+- SpliceAI: {ctx.get('spliceai', 'Not near splice site')}
+- UniProt Domains: {ctx.get('uniprot', 'Not available')}
+- gnomAD Frequencies: {ctx.get('gnomad', 'Not available')}
+- AlphaFold Metadata: {ctx.get('alphafold', 'Not available')}
+
+## Available Tools (call if needed)
+- search_pubmed(query) — Deep literature search
+- fetch_alphafold_structure(uniprot_id) — Get 3D structure
+- run_esmfold(sequence) — Predict structure de novo
+- run_pdockq2(structure_path) — Binding interface quality
+
+## Instructions
+- Show your reasoning before answering (chain-of-thought)
+- Cite specific evidence sources for every claim
+- If you need more data, call the appropriate tool
+- Be honest about uncertainty — don't fabricate evidence
+- Suggest actionable next steps when appropriate
+"""
+```
+
+### 10.9 Pre-Computation Pipeline
+
+```python
+# backend/design_assistant/precompute.py
+
+class PrecomputePipeline:
+    """Runs always-useful tools in background when a report is loaded."""
+
+    async def precompute(self, report: dict) -> dict:
+        results = {}
+
+        # Run in parallel
+        async with asyncio.TaskGroup() as tg:
+            # Always run
+            tg.create_task(self._run_uniprot(report, results))
+            tg.create_task(self._run_gnomad(report, results))
+
+            # Conditional
+            if self._is_near_splice_site(report):
+                tg.create_task(self._run_spliceai(report, results))
+            if self._is_missense(report):
+                tg.create_task(self._run_alphafold_metadata(report, results))
+
+        return results
+```
+
+### 10.10 Relationship to Design Therapeutics Tab
 
 The existing **Design Therapeutics** tab inside the saved report modal **stays**. The floating chatbot is complementary:
 
 | Design Therapeutics Tab | Floating Chatbot |
 |------------------------|-------------------|
-| One-shot strategy recommendation | Interactive Q&A |
+| One-shot strategy recommendation | Interactive Q&A with streaming CoT |
 | Full structured output | Free-form conversation |
 | Best for first review | Best for follow-up exploration |
 | Inside report modal | Always accessible |
+| Pre-computed evidence graph | Hybrid: pre-computed + autonomous tool calls |
+| Static response | Streaming token-by-token |
+| No memory | Persistent per-user, per-variant history |
 
 They can cross-reference each other — the chatbot can say *"See the full therapeutic analysis in the Design Therapeutics tab"* and the tab can say *"Ask follow-up questions in the chat."*
 
 ---
 
-## 10. Proto-Tools Integration (Phase 10)
+## 11. Proto-Tools Integration (Phase 10)
 
 ### 10.1 Tools to Integrate
 
@@ -1073,7 +1469,7 @@ class ProtoToolsClient:
 
 ---
 
-## 11. Implementation Phases & Roadmap
+## 12. Implementation Phases & Roadmap
 
 ### Phase 1: Reasoning Skeleton ✅ COMPLETED (2026-06-28)
 
@@ -1115,18 +1511,28 @@ class ProtoToolsClient:
 | Per-source confidence visualization | 2 hours |
 | Strategy comparison table | 2 hours |
 
-### Phase 12: Global Chatbot UX
+### Phase 12: Global Chatbot UX (Tier 1: Smart Q&A)
 
-| Deliverable | Estimated Effort |
-|------------|-----------------|
-| Global floating chatbot button | 2 hours |
-| Right-side chat panel (pushes content) | 3 hours |
-| ActiveVariantContext provider | 1 hour |
-| Contextual suggestion chips | 2 hours |
-| Chat input in side panel | 2 hours |
-| Conversation context management | 3 hours |
-| Nemotron Q&A mode integration | 2 hours |
-| Session persistence | 2 hours |
+| Deliverable | Estimated Effort | Description |
+|------------|-----------------|-------------|
+| `chat_agent.py` — Chat orchestrator | 3 hours | Nemotron streaming + hybrid tool-calling loop |
+| `precompute.py` — Background tool runner | 2 hours | UniProt, SpliceAI, gnomAD, AlphaFold pre-compute |
+| `stream_handler.py` — SSE event emitter | 1 hour | thinking/answer/tool_call/done/error events |
+| `POST /api/chat` — SSE streaming route | 2 hours | Next.js route with ReadableStream |
+| `GET/POST /api/chat/sessions` — CRUD | 1 hour | Session list, create, delete |
+| Prisma schema: ChatSession + ChatMessage | 1 hour | Migration + seed |
+| `use-chat-stream.ts` — SSE consumer hook | 2 hours | EventSource + state management |
+| `ActiveVariantProvider` + hook | 1 hour | React Context for active variant data |
+| `ChatFloatingButton` | 1 hour | Bottom-right 💬 with unread badge |
+| `ChatSidePanel` | 2 hours | Right-side 420px panel, push layout |
+| `ChatHeader` | 1 hour | Session title, new chat, history dropdown |
+| `ChatMessageList` | 1 hour | Scrollable, auto-scroll to bottom |
+| `ChatMessage` (user + assistant) | 2 hours | User bubble + assistant with CoT + answer |
+| `ChatThinkingBlock` | 1 hour | Collapsible, streamed token-by-token |
+| `ChatToolCallBlock` | 1 hour | Tool call status indicator |
+| `ChatSuggestions` | 1 hour | Context-aware chips, disappear after first message |
+| `ChatInput` | 1 hour | Textarea + send, disabled during streaming |
+| **Total** | **24 hours** | ~3-4 days of focused development |
 
 ### Phase 13: Demo Preparation
 
@@ -1140,7 +1546,7 @@ class ProtoToolsClient:
 
 ---
 
-## 11. References & Papers
+## 13. References & Papers
 
 ### Core Models & Tools
 
@@ -1181,7 +1587,7 @@ class ProtoToolsClient:
 
 ---
 
-## 12. Vlogs, Talks & Tutorials
+## 14. Vlogs, Talks & Tutorials
 
 ### Evo2 & Genomic AI
 
@@ -1214,7 +1620,7 @@ class ProtoToolsClient:
 
 ---
 
-## 13. Code Resources & GitHub Links
+## 15. Code Resources & GitHub Links
 
 ### Our Repository
 
@@ -1246,7 +1652,7 @@ class ProtoToolsClient:
 
 ---
 
-## 14. API Shape & Contracts
+## 16. API Shape & Contracts
 
 ### Request
 
@@ -1324,7 +1730,7 @@ Authorization: Bearer <clerk_session_token>
 
 ---
 
-## 15. Acceptance Criteria
+## 17. Acceptance Criteria
 
 ### v1 (Current — Phase 1 Complete)
 
@@ -1349,9 +1755,14 @@ Authorization: Bearer <clerk_session_token>
 ### v3 (Phase 11-12 Target)
 
 - [ ] Strategy differential shows why alternatives were rejected
-- [ ] Global floating chatbot with right-side panel
-- [ ] Context-aware suggestions based on active variant
-- [ ] Follow-up Q&A works with conversation memory
+- [ ] Global floating chatbot with right-side panel (pushes content, not overlay)
+- [ ] Full report context injected into chat (not summarized evidence graph)
+- [ ] Streaming token-by-token responses via SSE
+- [ ] Chain-of-thought reasoning visible and collapsible
+- [ ] Hybrid tool-calling: pre-computed always-useful tools + autonomous deep-dive tools
+- [ ] Context-aware suggestion chips based on active variant
+- [ ] Chat history persisted per-user, per-variant (survives logout/login)
+- [ ] Session management: new chat, history dropdown, session switching
 - [ ] Confidence breakdown by evidence quality, model agreement, tool availability
 
 ### Demo-Ready (Phase 13 Target)
@@ -1363,7 +1774,7 @@ Authorization: Bearer <clerk_session_token>
 
 ---
 
-## 16. Risks, Constraints & Future Work
+## 18. Risks, Constraints & Future Work
 
 ### Current Risks
 
@@ -1377,14 +1788,24 @@ Authorization: Bearer <clerk_session_token>
 
 ### Future Work
 
+#### Chatbot Capability Tiers
+
+| Tier | Phase | Capabilities |
+|------|-------|-------------|
+| **Tier 1: Smart Q&A** | Phase 12 (now) | Full report context, streaming CoT, pre-computed tools, session persistence, contextual suggestions |
+| **Tier 2: Multi-Variant** | Phase 14 | Compare variants, gene-panel analysis, pathway reasoning, population-aware analysis |
+| **Tier 3: Agentic Design** | Phase 15 | Autonomous tool calling, multi-step design workflows, hypothesis generation, clinical trial matching |
+| **Tier 4: Autonomous Investigation** | Phase 16 | Self-directed literature review, computational experiment design, report generation, longitudinal tracking |
+
+#### Other Future Work
+
 1. **CRISPR Design Module**: Once off-target prediction is reliable, add guide RNA design for allele-specific targeting
 2. **Clinical Trial Matching**: Connect strategy recommendations to active clinical trials via ClinicalTrials.gov API
 3. **Drug Repurposing**: Map affected domains/pathways to existing FDA-approved drugs
 4. **Multi-Variant Analysis**: Analyze all variants in a gene simultaneously for combinatorial effects
 5. **Population-Specific Calibration**: Adjust thresholds based on ancestry-specific gnomAD frequencies
 6. **Real-time Collaboration**: Allow multiple researchers to discuss and annotate assistant outputs
-7. **Persistent Chatbot**: Store chat history per variant/user for longitudinal research workflows
-8. **Automated Report Generation**: Produce publication-ready variant interpretation reports
+7. **Automated Report Generation**: Produce publication-ready variant interpretation reports
 
 ---
 
