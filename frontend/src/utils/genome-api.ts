@@ -88,7 +88,11 @@ export interface EvidenceConfidence {
   clinvar: { available: boolean; confidence: string; note: string };
   uniprot: { available: boolean; confidence: string; note: string };
   pubmed: { available: boolean; confidence: string; note: string };
-  overall: { level: string; sources_available: string; high_confidence_sources: string };
+  overall: {
+    level: string;
+    sources_available: string;
+    high_confidence_sources: string;
+  };
 }
 
 // ─── ISM (In-Silico Mutagenesis) Scan Types ─────────────────────────────
@@ -213,9 +217,21 @@ export interface CADDScore {
   interpretation: string;
 }
 
+export interface AlphaMissenseScore {
+  score: number;
+  confidence: string;
+  classification: string;
+}
+
+export interface REVELScore {
+  score: number;
+  interpretation: string;
+}
+
 export interface ExternalScores {
   cadd: CADDScore | null;
-  revel: null;
+  revel: REVELScore | null;
+  alphamissense: AlphaMissenseScore | null;
   concordance_note: string | null;
 }
 
@@ -381,8 +397,8 @@ export async function searchGenes(query: string, genome: string) {
             chrom = `chr${chrom}`;
           }
           results.push({
-            symbol: display[1],  // Symbol is at index 1
-            name: display[2],    // description is at index 2
+            symbol: display[1], // Symbol is at index 1
+            name: display[2], // description is at index 2
             chrom,
             description: display[2],
             gene_id: geneIds[i] || "",
@@ -642,12 +658,35 @@ export async function analyzeVariantWithAPI({
     body: JSON.stringify(requestBody),
   });
 
-  const result = (await response.json()) as AnalysisResult & { needsCredits?: boolean; message?: string; error?: string };
+  // Guard against non-JSON responses (e.g. Clerk auth redirects returning HTML)
+  type ApiResponse = AnalysisResult & {
+    needsCredits?: boolean;
+    message?: string;
+    error?: string;
+  };
+  let result: ApiResponse;
+  const contentType = response.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    result = (await response.json()) as ApiResponse;
+  } else {
+    const text = await response.text();
+    console.error(
+      "❌ API returned non-JSON response:",
+      response.status,
+      text.slice(0, 200),
+    );
+    result = {
+      message: `Server returned ${response.status}. Please sign in or try again.`,
+      error: "non_json_response",
+    } as ApiResponse;
+  }
 
   if (!response.ok) {
     // Handle credit-related errors
     if (result.needsCredits) {
-      const error = new Error(result.message || "Not enough credits") as Error & {
+      const error = new Error(
+        result.message || "Not enough credits",
+      ) as Error & {
         needsCredits: boolean;
         errorType: string;
       };
@@ -657,7 +696,9 @@ export async function analyzeVariantWithAPI({
     }
 
     console.error("❌ API Error:", result);
-    throw new Error(result.message || "Failed to analyze variant");
+    throw new Error(
+      result.message || `Failed to analyze variant (HTTP ${response.status})`,
+    );
   }
 
   console.log("✅ API Response:", result);

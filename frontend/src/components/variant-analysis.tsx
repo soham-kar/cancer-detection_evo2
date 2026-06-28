@@ -106,7 +106,9 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
       // Allow multi-nucleotide sequences for indels (e.g., GTC, ATG)
       const validNucleotides = /^[ATGC]+$/i;
       if (!validNucleotides.test(alt)) {
-        setVariantError("Nucleotides must be A, C, G or T (multi-nucleotide sequences allowed)");
+        setVariantError(
+          "Nucleotides must be A, C, G or T (multi-nucleotide sequences allowed)",
+        );
         return;
       }
 
@@ -126,8 +128,10 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
         setVariantResult(data);
         // Trigger history refresh
         onAnalysisComplete?.();
+        // Notify other components (e.g. AnalysisHistory) that a new report exists
+        window.dispatchEvent(new CustomEvent("analysis-saved"));
         // Trigger credits refresh
-        window.dispatchEvent(new CustomEvent('credits-updated'));
+        window.dispatchEvent(new CustomEvent("credits-updated"));
       } catch (err: unknown) {
         console.error(err);
         // Check if it's a credit-related error
@@ -152,7 +156,8 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
         </CardHeader>
         <CardContent className="pb-4">
           <p className="mb-4 text-xs text-[#3c4f3d]/80">
-            Generate evidence-based pathogenicity predictions for any genomic coordinate.
+            Generate evidence-based pathogenicity predictions for any genomic
+            coordinate.
           </p>
           <div className="flex flex-wrap items-end gap-4">
             <div>
@@ -195,16 +200,17 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                 </span>
               </div>
             )}
-            <label className="flex items-center gap-2 cursor-pointer select-none">
+            <label className="flex cursor-pointer items-center gap-2 select-none">
               <input
                 type="checkbox"
                 checked={enableISM}
                 onChange={(e) => setEnableISM(e.target.checked)}
                 disabled={isAnalyzing}
-                className="h-3.5 w-3.5 rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                className="h-3.5 w-3.5 cursor-pointer rounded border-slate-300 text-indigo-600 focus:ring-indigo-500"
               />
               <span className="text-[11px] text-slate-500">
-                ISM Scan <span className="text-slate-400">(±20bp constraint map)</span>
+                ISM Scan{" "}
+                <span className="text-slate-400">(±20bp constraint map)</span>
               </span>
             </label>
             <Button
@@ -236,7 +242,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                     ?.toLowerCase()
                     .includes("single nucleotide") &&
                   parseInt(variant?.location?.replaceAll(",", "")) ===
-                  parseInt(variantPosition.replaceAll(",", "")),
+                    parseInt(variantPosition.replaceAll(",", "")),
               )
               .map((matchedVariant) => {
                 const refAltMatch = matchedVariant.title.match(/(\w)>(\w)/);
@@ -251,7 +257,9 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                 if (!ref || !alt) return null;
 
                 // Log when ClinVar card renders (confirms new code is loaded)
-                console.log(`🧬 [ClinVar-Card-Render] Position ${matchedVariant.location}: extracted ref=${ref}, alt=${alt} from title: "${matchedVariant.title}"`);
+                console.log(
+                  `🧬 [ClinVar-Card-Render] Position ${matchedVariant.location}: extracted ref=${ref}, alt=${alt} from title: "${matchedVariant.title}"`,
+                );
 
                 return (
                   <div
@@ -301,37 +309,56 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                           size="sm"
                           className="h-7 cursor-pointer border-[#3c4f3d]/20 bg-[#e9eeea] text-xs text-[#3c4f3d] hover:bg-[#3c4f3d]/10"
                           onClick={async () => {
-                            console.log(`[ClinVar-Debug] Starting analysis for position ${variantPosition}`);
-                            console.log(`[ClinVar-Debug] From title: ref=${ref}, alt=${alt}`);
-                            
+                            console.log(
+                              `[ClinVar-Debug] Starting analysis for position ${variantPosition}`,
+                            );
+                            console.log(
+                              `[ClinVar-Debug] From title: ref=${ref}, alt=${alt}`,
+                            );
+
                             // Fetch genomic reference to detect strand orientation
                             const genomicRef = await fetchSingleBase(
                               chromosome,
                               parseInt(variantPosition.replaceAll(",", "")),
-                              genomeId
+                              genomeId,
                             );
-                            console.log(`[ClinVar-Debug] Genomic reference fetched: ${genomicRef}`);
-                            
+                            console.log(
+                              `[ClinVar-Debug] Genomic reference fetched: ${genomicRef}`,
+                            );
+
                             // Check if gene is on minus strand (transcript ref != genomic ref)
-                            const isMinusStrand = genomicRef && ref && 
-                                                  genomicRef.toUpperCase() !== ref.toUpperCase();
-                            console.log(`[ClinVar-Debug] Strand detection: genomic=${genomicRef}, transcript=${ref}, isMinusStrand=${isMinusStrand}`);
-                            
+                            const isMinusStrand =
+                              genomicRef &&
+                              ref &&
+                              genomicRef.toUpperCase() !== ref.toUpperCase();
+                            console.log(
+                              `[ClinVar-Debug] Strand detection: genomic=${genomicRef}, transcript=${ref}, isMinusStrand=${isMinusStrand}`,
+                            );
+
                             let finalAlt = alt;
-                            
+
                             // For minus-strand genes, reverse complement the alternative
                             if (isMinusStrand && genomicRef) {
-                              const complement: Record<string, string> = { 
-                                'A': 'T', 'T': 'A', 'C': 'G', 'G': 'C' 
+                              const complement: Record<string, string> = {
+                                A: "T",
+                                T: "A",
+                                C: "G",
+                                G: "C",
                               };
                               const originalAlt = alt;
                               finalAlt = complement[alt.toUpperCase()] || alt;
-                              console.log(`[ClinVar] Minus-strand gene detected. Transcript: ${ref}>${originalAlt}, Genomic: ${genomicRef}>${finalAlt}`);
+                              console.log(
+                                `[ClinVar] Minus-strand gene detected. Transcript: ${ref}>${originalAlt}, Genomic: ${genomicRef}>${finalAlt}`,
+                              );
                             } else {
-                              console.log(`[ClinVar-Debug] Plus-strand or detection failed, using original alt=${alt}`);
+                              console.log(
+                                `[ClinVar-Debug] Plus-strand or detection failed, using original alt=${alt}`,
+                              );
                             }
-                            
-                            console.log(`[ClinVar-Debug] Final alternative being sent: ${finalAlt}`);
+
+                            console.log(
+                              `[ClinVar-Debug] Final alternative being sent: ${finalAlt}`,
+                            );
                             setVariantAlternative(finalAlt);
                             handleVariantSubmit(
                               variantPosition.replaceAll(",", ""),
@@ -377,7 +404,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                         console.error("Checkout error:", e);
                       }
                     }}
-                    className="flex items-center gap-1.5 rounded-md bg-[#de8246] px-3 py-1.5 text-xs font-medium text-white hover:bg-[#c97340] transition-colors"
+                    className="flex items-center gap-1.5 rounded-md bg-[#de8246] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#c97340]"
                   >
                     <ShoppingCart className="h-3.5 w-3.5" />
                     Buy Credits
@@ -398,28 +425,31 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                   {/* Left side - Variant Info */}
                   <div className="rounded-md bg-[#f5f5f4] p-4">
                     <div className="mb-4">
-                      <div className="text-xs font-medium text-[#3c4f3d]/70 mb-1">
+                      <div className="mb-1 text-xs font-medium text-[#3c4f3d]/70">
                         Variant
                       </div>
-                      <div className="text-sm font-semibold font-mono text-[#3c4f3d] tracking-tight">
-                        {gene?.symbol} {variantResult.position?.toLocaleString()}{" "}
+                      <div className="font-mono text-sm font-semibold tracking-tight text-[#3c4f3d]">
+                        {gene?.symbol}{" "}
+                        {variantResult.position?.toLocaleString()}{" "}
                         {variantResult.reference}
                         <span className="text-orange-500">{">"}</span>
                         {variantResult.alternative}
                       </div>
                     </div>
                     <div>
-                      <div className="text-xs font-medium text-[#3c4f3d]/70 mb-1">
+                      <div className="mb-1 text-xs font-medium text-[#3c4f3d]/70">
                         Delta likelihood score
                       </div>
-                      <div className={`text-lg font-semibold font-mono ${variantResult.prediction.toLowerCase().includes('pathogenic') ? 'text-red-800' : variantResult.prediction.toLowerCase().includes('benign') ? 'text-green-800' : 'text-[#3c4f3d]'}`}>
+                      <div
+                        className={`font-mono text-lg font-semibold ${variantResult.prediction.toLowerCase().includes("pathogenic") ? "text-red-800" : variantResult.prediction.toLowerCase().includes("benign") ? "text-green-800" : "text-[#3c4f3d]"}`}
+                      >
                         {variantResult.delta_score.toFixed(6)}
                       </div>
 
                       {/* Visual scale bar */}
                       <div className="mt-2">
                         {/* Scale labels */}
-                        <div className="flex justify-between text-[10px] text-[#3c4f3d]/60 mb-1">
+                        <div className="mb-1 flex justify-between text-[10px] text-[#3c4f3d]/60">
                           <span>Pathogenic</span>
                           <span>Neutral</span>
                           <span>Benign</span>
@@ -432,27 +462,37 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
 
                           {/* Score marker */}
                           <div
-                            className="absolute top-1/2 -translate-y-1/2 -translate-x-1/2 h-4 w-4 rounded-full border-2 border-white bg-[#3c4f3d] shadow-md"
+                            className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-[#3c4f3d] shadow-md"
                             style={{
-                              left: `${Math.max(5, Math.min(95,
-                                // Use much tighter range for better sensitivity to small scores
-                                // Most delta scores are in range -0.01 to +0.01
-                                ((Math.max(-0.01, Math.min(0.01, variantResult.delta_score)) + 0.01) / 0.02) * 100
-                              ))}%`
+                              left: `${Math.max(
+                                5,
+                                Math.min(
+                                  95,
+                                  // Use much tighter range for better sensitivity to small scores
+                                  // Most delta scores are in range -0.01 to +0.01
+                                  ((Math.max(
+                                    -0.01,
+                                    Math.min(0.01, variantResult.delta_score),
+                                  ) +
+                                    0.01) /
+                                    0.02) *
+                                    100,
+                                ),
+                              )}%`,
                             }}
                             title={`Score: ${variantResult.delta_score.toFixed(6)}`}
                           ></div>
                         </div>
 
                         {/* Scale numbers */}
-                        <div className="flex justify-between text-[9px] text-[#3c4f3d]/40 mt-0.5">
+                        <div className="mt-0.5 flex justify-between text-[9px] text-[#3c4f3d]/40">
                           <span>-1</span>
                           <span>0</span>
                           <span>+1</span>
                         </div>
                       </div>
 
-                      <div className="text-xs text-[#3c4f3d]/60 mt-2">
+                      <div className="mt-2 text-xs text-[#3c4f3d]/60">
                         {variantResult.delta_score < -0.001
                           ? "⚠️ Negative score indicates loss of function"
                           : variantResult.delta_score > 0.001
@@ -464,7 +504,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
 
                   {/* Right side - Evo2 Prediction */}
                   <div className="rounded-md bg-[#f5f5f4] p-4">
-                    <div className="text-xs font-medium text-[#3c4f3d] flex items-center gap-2 mb-2">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[#3c4f3d]">
                       <span className="flex h-5 w-5 items-center justify-center rounded-full bg-[#3c4f3d]/10">
                         <span className="h-3 w-3 rounded-full bg-[#de8246]"></span>
                       </span>
@@ -473,19 +513,43 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                     <div
                       className={`inline-flex items-center gap-1 rounded-lg px-3 py-1 text-xs ${getClassificationColorClasses(variantResult.prediction)}`}
                     >
-                      {variantResult.prediction.toLowerCase().includes("pathogenic") ? (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                      {variantResult.prediction
+                        .toLowerCase()
+                        .includes("pathogenic") ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-3 w-3"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
                         </svg>
                       ) : (
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-3 w-3"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+                          />
                         </svg>
                       )}
                       {variantResult.prediction}
                     </div>
                     <div className="mt-4">
-                      <div className="text-xs font-medium text-[#3c4f3d]/70 mb-1">
+                      <div className="mb-1 text-xs font-medium text-[#3c4f3d]/70">
                         Confidence:
                       </div>
                       <div className="h-2 w-full rounded-full bg-white">
@@ -497,7 +561,10 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                         ></div>
                       </div>
                       <div className="mt-1 text-right text-xs text-[#3c4f3d]/60">
-                        {Math.round(variantResult.classification_confidence * 100)}%
+                        {Math.round(
+                          variantResult.classification_confidence * 100,
+                        )}
+                        %
                       </div>
                     </div>
                   </div>
@@ -513,15 +580,18 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                 <div className="grid gap-4 md:grid-cols-3">
                   {/* gnomAD Population Frequency */}
                   <div className="rounded-md bg-white p-3">
-                    <div className="text-xs font-medium text-[#3c4f3d]/70 mb-1">
+                    <div className="mb-1 text-xs font-medium text-[#3c4f3d]/70">
                       Population Frequency
                     </div>
                     {variantResult.population_frequency?.gnomad_af ? (
                       <div className="text-sm">
                         <span className="font-medium">
-                          {(variantResult.population_frequency.gnomad_af * 100).toFixed(4)}%
+                          {(
+                            variantResult.population_frequency.gnomad_af * 100
+                          ).toFixed(4)}
+                          %
                         </span>
-                        <div className="text-xs text-[#3c4f3d]/60 mt-1">
+                        <div className="mt-1 text-xs text-[#3c4f3d]/60">
                           {variantResult.population_frequency.is_common_variant
                             ? "Common variant"
                             : "Rare variant"}
@@ -532,59 +602,75 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                         Not found in gnomAD
                       </div>
                     )}
-                    <div className="text-xs text-[#3c4f3d]/40 mt-1">
-                      {variantResult.population_frequency?.source || "gnomAD v4.1"}
+                    <div className="mt-1 text-xs text-[#3c4f3d]/40">
+                      {variantResult.population_frequency?.source ||
+                        "gnomAD v4.1"}
                     </div>
                   </div>
 
                   {/* ACMG Evidence */}
                   <div className="rounded-md bg-white p-3">
-                    <div className="text-xs font-medium text-[#3c4f3d]/70 mb-1">
+                    <div className="mb-1 text-xs font-medium text-[#3c4f3d]/70">
                       ACMG Evidence
                     </div>
-                    {variantResult.acmg_evidence?.code && variantResult.acmg_evidence.code !== "None" ? (
+                    {variantResult.acmg_evidence?.code &&
+                    variantResult.acmg_evidence.code !== "None" ? (
                       <div>
                         <span className="inline-block rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-800">
                           {variantResult.acmg_evidence.code}
-                          {variantResult.acmg_evidence.strength && ` (${variantResult.acmg_evidence.strength})`}
+                          {variantResult.acmg_evidence.strength &&
+                            ` (${variantResult.acmg_evidence.strength})`}
                         </span>
-                        <div className="text-xs text-[#3c4f3d]/60 mt-1">
+                        <div className="mt-1 text-xs text-[#3c4f3d]/60">
                           {variantResult.acmg_evidence.description}
                         </div>
                       </div>
                     ) : (
                       <div className="text-sm text-[#3c4f3d]/50">
-                        {variantResult.acmg_evidence?.description || "No evidence code assigned"}
+                        {variantResult.acmg_evidence?.description ||
+                          "No evidence code assigned"}
                       </div>
                     )}
                   </div>
 
                   {/* Literature Context */}
                   <div className="rounded-md bg-white p-3">
-                    <div className="text-xs font-medium text-[#3c4f3d]/70 mb-1">
+                    <div className="mb-1 text-xs font-medium text-[#3c4f3d]/70">
                       Literature
                     </div>
                     {variantResult.literature_context?.articles_found ? (
                       <div>
                         <div className="text-xs text-[#3c4f3d]/60">
-                          {Math.min(5, variantResult.literature_context.pubmed_ids?.length || 0)} articles
+                          {Math.min(
+                            5,
+                            variantResult.literature_context.pubmed_ids
+                              ?.length || 0,
+                          )}{" "}
+                          articles
                         </div>
-                        {variantResult.literature_context.pubmed_ids?.length > 0 && (
+                        {variantResult.literature_context.pubmed_ids?.length >
+                          0 && (
                           <div className="mt-1 flex flex-wrap gap-1">
-                            {variantResult.literature_context.pubmed_ids.slice(0, 5).map((id) => (
-                              <a
-                                key={id}
-                                href={`https://pubmed.ncbi.nlm.nih.gov/${id}/`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2 py-1 text-xs font-medium text-slate-600 bg-slate-100 rounded-full hover:bg-slate-200 hover:text-slate-800 transition-colors border border-slate-200"
-                              >
-                                <svg className="h-3 w-3" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
-                                </svg>
-                                PMID:{id}
-                              </a>
-                            ))}
+                            {variantResult.literature_context.pubmed_ids
+                              .slice(0, 5)
+                              .map((id) => (
+                                <a
+                                  key={id}
+                                  href={`https://pubmed.ncbi.nlm.nih.gov/${id}/`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 hover:text-slate-800"
+                                >
+                                  <svg
+                                    className="h-3 w-3"
+                                    fill="currentColor"
+                                    viewBox="0 0 24 24"
+                                  >
+                                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z" />
+                                  </svg>
+                                  PMID:{id}
+                                </a>
+                              ))}
                           </div>
                         )}
                       </div>
@@ -601,8 +687,19 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                   <div className="mt-4 rounded-md border border-[#3c4f3d]/10 bg-white p-4">
                     <div className="mb-3 flex items-center gap-2">
                       <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#de8246]/10">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 text-[#de8246]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6-4h6m-2 5.5c.5.3 1.2.2 1.4-.3.3-.5.2-1.2-.3-1.4-.5-.3-1.2-.2-1.4.3-.3.5-.2 1.2.3 1.4zM7 20h10v-2H7v2zM9 2h6v4H9V2z" />
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="h-4 w-4 text-[#de8246]"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M9 12h6m-6-4h6m-2 5.5c.5.3 1.2.2 1.4-.3.3-.5.2-1.2-.3-1.4-.5-.3-1.2-.2-1.4.3-.3.5-.2 1.2.3 1.4zM7 20h10v-2H7v2zM9 2h6v4H9V2z"
+                          />
                         </svg>
                       </span>
                       <div className="text-xs font-medium text-[#3c4f3d]">
@@ -612,12 +709,14 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                         Llama 3.3 70B
                       </span>
                     </div>
-                    <FormattedClinicalSummary summary={variantResult.clinical_summary} />
+                    <FormattedClinicalSummary
+                      summary={variantResult.clinical_summary}
+                    />
 
                     {/* Evidence Confidence Matrix */}
                     {variantResult.evidence_confidence && (
                       <div className="mt-4 border-t border-[#3c4f3d]/10 pt-3">
-                        <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[#3c4f3d]/50">
+                        <div className="mb-2 text-[10px] font-medium tracking-wider text-[#3c4f3d]/50 uppercase">
                           Evidence Confidence
                         </div>
                         <div className="grid grid-cols-3 gap-2">
@@ -639,7 +738,7 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                                   title={val.note}
                                 >
                                   <div className="flex items-center justify-between">
-                                    <span className="text-[10px] font-semibold uppercase tracking-wide">
+                                    <span className="text-[10px] font-semibold tracking-wide uppercase">
                                       {key}
                                     </span>
                                     <span className="text-[10px] font-medium">
@@ -656,12 +755,16 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                         {/* Overall confidence badge */}
                         {variantResult.evidence_confidence.overall && (
                           <div className="mt-2 flex items-center gap-2">
-                            <span className="text-[10px] text-[#3c4f3d]/60">Overall:</span>
+                            <span className="text-[10px] text-[#3c4f3d]/60">
+                              Overall:
+                            </span>
                             <span
                               className={`inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                                variantResult.evidence_confidence.overall.level === "High"
+                                variantResult.evidence_confidence.overall
+                                  .level === "High"
                                   ? "bg-green-100 text-green-800"
-                                  : variantResult.evidence_confidence.overall.level === "Medium"
+                                  : variantResult.evidence_confidence.overall
+                                        .level === "Medium"
                                     ? "bg-yellow-100 text-yellow-800"
                                     : "bg-red-100 text-red-800"
                               }`}
@@ -669,8 +772,16 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                               {variantResult.evidence_confidence.overall.level}
                             </span>
                             <span className="text-[10px] text-[#3c4f3d]/50">
-                              {variantResult.evidence_confidence.overall.sources_available} sources,{" "}
-                              {variantResult.evidence_confidence.overall.high_confidence_sources} high-confidence
+                              {
+                                variantResult.evidence_confidence.overall
+                                  .sources_available
+                              }{" "}
+                              sources,{" "}
+                              {
+                                variantResult.evidence_confidence.overall
+                                  .high_confidence_sources
+                              }{" "}
+                              high-confidence
                             </span>
                           </div>
                         )}
@@ -678,13 +789,32 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                     )}
 
                     {/* Disclaimer */}
-                    <div className="mt-4 rounded bg-amber-50 border border-amber-200 p-3">
+                    <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3">
                       <div className="flex items-start gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4 flex-shrink-0 text-amber-600 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          className="mt-0.5 h-4 w-4 flex-shrink-0 text-amber-600"
+                          fill="none"
+                          viewBox="0 0 24 24"
+                          stroke="currentColor"
+                        >
+                          <path
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            strokeWidth={2}
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"
+                          />
                         </svg>
                         <p className="text-[11px] leading-relaxed text-amber-800">
-                          <strong>Computational Prediction Only:</strong> This summary is generated by an AI model (Llama 3.3 70B) using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation. Always verify critical findings with a board-certified clinical geneticist or molecular pathologist before making patient care decisions.
+                          <strong>Computational Prediction Only:</strong> This
+                          summary is generated by an AI model (Llama 3.3 70B)
+                          using publicly available databases. It is intended for
+                          research and educational purposes only and must not be
+                          used as a substitute for professional clinical
+                          judgment, genetic counseling, or laboratory
+                          validation. Always verify critical findings with a
+                          board-certified clinical geneticist or molecular
+                          pathologist before making patient care decisions.
                         </p>
                       </div>
                     </div>
@@ -692,14 +822,17 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                 )}
 
                 {/* Legacy AI Summary (fallback) */}
-                {!variantResult.clinical_summary && variantResult.literature_context?.summary && (
-                  <div className="mt-4 rounded-md bg-white p-3">
-                    <div className="text-xs font-medium text-[#3c4f3d]/70 mb-2">
-                      AI Clinical Summary
+                {!variantResult.clinical_summary &&
+                  variantResult.literature_context?.summary && (
+                    <div className="mt-4 rounded-md bg-white p-3">
+                      <div className="mb-2 text-xs font-medium text-[#3c4f3d]/70">
+                        AI Clinical Summary
+                      </div>
+                      <FormattedClinicalSummary
+                        summary={variantResult.literature_context.summary}
+                      />
                     </div>
-                    <FormattedClinicalSummary summary={variantResult.literature_context.summary} />
-                  </div>
-                )}
+                  )}
 
                 {/* In-Silico Mutagenesis Scan */}
                 {variantResult.ism_scan && (
@@ -754,7 +887,9 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                       data={variantResult.external_scores}
                       evo2Prediction={variantResult.prediction}
                       evo2Delta={variantResult.delta_score}
-                      clinvarClassification={variantResult.clinvar_evidence?.status ?? null}
+                      clinvarClassification={
+                        variantResult.clinvar_evidence?.status ?? null
+                      }
                     />
                   </div>
                 )}
@@ -769,10 +904,16 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                     alternative={variantResult.alternative}
                     prediction={variantResult.prediction}
                     deltaScore={variantResult.delta_score}
-                    classificationConfidence={variantResult.classification_confidence}
+                    classificationConfidence={
+                      variantResult.classification_confidence
+                    }
                     variationType={null}
-                    clinvarClassification={variantResult.clinvar_evidence?.status ?? null}
-                    populationFrequency={variantResult.population_frequency ?? null}
+                    clinvarClassification={
+                      variantResult.clinvar_evidence?.status ?? null
+                    }
+                    populationFrequency={
+                      variantResult.population_frequency ?? null
+                    }
                     acmgEvidence={variantResult.acmg_evidence ?? null}
                     xaiFactors={variantResult.xai_factors?.factors ?? null}
                     vepAnnotation={null}
@@ -782,43 +923,72 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                 {/* Evidence Summary */}
                 <div className="mt-4 rounded-md border border-[#3c4f3d]/10 bg-gradient-to-br from-[#e9eeea]/50 to-white p-4">
                   <h5 className="mb-3 flex items-center gap-2 text-sm font-medium text-[#3c4f3d]">
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M20.618 5.984A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"
+                      />
                     </svg>
                     Evidence Summary
                   </h5>
-                  <div className="space-y-3 text-sm text-[#3c4f3d] leading-relaxed">
+                  <div className="space-y-3 text-sm leading-relaxed text-[#3c4f3d]">
                     {/* Evo2 Prediction */}
                     <div className="flex items-start gap-2">
-                      <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${variantResult.prediction.toLowerCase().includes("pathogenic") ? "bg-red-500" : "bg-green-500"}`}></span>
+                      <span
+                        className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${variantResult.prediction.toLowerCase().includes("pathogenic") ? "bg-red-500" : "bg-green-500"}`}
+                      ></span>
                       <p className="text-[#3c4f3d]">
-                        <strong>Evo2 predicts this variant as {variantResult.prediction}</strong> with {Math.round(variantResult.classification_confidence * 100)}% confidence.
+                        <strong>
+                          Evo2 predicts this variant as{" "}
+                          {variantResult.prediction}
+                        </strong>{" "}
+                        with{" "}
+                        {Math.round(
+                          variantResult.classification_confidence * 100,
+                        )}
+                        % confidence.
                         {variantResult.delta_score < 0
                           ? ` The negative delta score (${variantResult.delta_score.toFixed(4)}) indicates the variant reduces protein fitness, suggesting loss of normal function.`
-                          : ` The positive delta score (${variantResult.delta_score.toFixed(4)}) indicates preserved or improved protein fitness, suggesting the variant is tolerated.`
-                        }
+                          : ` The positive delta score (${variantResult.delta_score.toFixed(4)}) indicates preserved or improved protein fitness, suggesting the variant is tolerated.`}
                       </p>
                     </div>
 
                     {/* gnomAD */}
                     <div className="flex items-start gap-2">
-                      <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${variantResult.population_frequency?.gnomad_af ? "bg-yellow-500" : "bg-red-500"}`}></span>
+                      <span
+                        className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${variantResult.population_frequency?.gnomad_af ? "bg-yellow-500" : "bg-red-500"}`}
+                      ></span>
                       <p className="text-[#3c4f3d]">
                         {variantResult.population_frequency?.gnomad_af ? (
                           <>
-                            <strong>Population frequency: {(variantResult.population_frequency.gnomad_af * 100).toFixed(4)}%</strong> in gnomAD v4.1.
+                            <strong>
+                              Population frequency:{" "}
+                              {(
+                                variantResult.population_frequency.gnomad_af *
+                                100
+                              ).toFixed(4)}
+                              %
+                            </strong>{" "}
+                            in gnomAD v4.1.
                             {variantResult.population_frequency.gnomad_af > 0.01
                               ? " This is a common variant, less likely to be pathogenic."
-                              : " This is a rare variant, which may support pathogenicity if functional evidence exists."
-                            }
+                              : " This is a rare variant, which may support pathogenicity if functional evidence exists."}
                           </>
                         ) : (
                           <>
-                            <strong>Not observed in gnomAD</strong> (v4.1 with 800,000+ individuals).
+                            <strong>Not observed in gnomAD</strong> (v4.1 with
+                            800,000+ individuals).
                             {variantResult.delta_score < 0
                               ? " Combined with Evo2's negative delta score, this supports pathogenicity—deleterious variants are rare because natural selection removes them."
-                              : " While rarity can suggest pathogenicity, Evo2's positive delta score indicates preserved protein function. Many ultra-rare variants are benign but simply haven't been observed yet due to population sampling."
-                            }
+                              : " While rarity can suggest pathogenicity, Evo2's positive delta score indicates preserved protein function. Many ultra-rare variants are benign but simply haven't been observed yet due to population sampling."}
                           </>
                         )}
                       </p>
@@ -826,43 +996,60 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
 
                     {/* ACMG */}
                     <div className="flex items-start gap-2">
-                      <span className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${variantResult.acmg_evidence?.code?.includes("PP3") ? "bg-red-400" :
-                        variantResult.acmg_evidence?.code?.includes("BP4") ? "bg-green-400" :
-                          "bg-blue-500"
-                        }`}></span>
+                      <span
+                        className={`mt-1 h-2 w-2 flex-shrink-0 rounded-full ${
+                          variantResult.acmg_evidence?.code?.includes("PP3")
+                            ? "bg-red-400"
+                            : variantResult.acmg_evidence?.code?.includes("BP4")
+                              ? "bg-green-400"
+                              : "bg-blue-500"
+                        }`}
+                      ></span>
                       <p className="text-[#3c4f3d]">
-                        {variantResult.acmg_evidence?.code && variantResult.acmg_evidence.code !== "None" ? (
+                        {variantResult.acmg_evidence?.code &&
+                        variantResult.acmg_evidence.code !== "None" ? (
                           <>
-                            <strong>ACMG {variantResult.acmg_evidence.code}</strong>
-                            {variantResult.acmg_evidence.strength && ` (${variantResult.acmg_evidence.strength})`}:{" "}
+                            <strong>
+                              ACMG {variantResult.acmg_evidence.code}
+                            </strong>
+                            {variantResult.acmg_evidence.strength &&
+                              ` (${variantResult.acmg_evidence.strength})`}
+                            :{" "}
                             {variantResult.acmg_evidence.code.includes("PP3")
                               ? "Computational evidence supports a deleterious effect on the gene or gene product."
                               : variantResult.acmg_evidence.code.includes("BP4")
                                 ? "Computational evidence suggests no impact on the gene or gene product."
-                                : variantResult.acmg_evidence.description
-                            }
+                                : variantResult.acmg_evidence.description}
                           </>
                         ) : (
                           <>
-                            <strong>Computational evidence inconclusive</strong>: The prediction confidence is in the uncertain range. Additional clinical or functional evidence is recommended.
+                            <strong>Computational evidence inconclusive</strong>
+                            : The prediction confidence is in the uncertain
+                            range. Additional clinical or functional evidence is
+                            recommended.
                           </>
                         )}
                       </p>
                     </div>
 
                     {/* Classification Note */}
-                    <div className="mt-3 rounded-md bg-yellow-50 border border-yellow-200 p-3">
+                    <div className="mt-3 rounded-md border border-yellow-200 bg-yellow-50 p-3">
                       <div className="flex items-start gap-2">
-                        <span className="text-yellow-600 text-lg leading-none">⚠</span>
+                        <span className="text-lg leading-none text-yellow-600">
+                          ⚠
+                        </span>
                         <p className="text-sm text-yellow-800">
-                          <strong>Classification Note:</strong> This is a standalone analysis without ClinVar reference data.
-                          {variantResult.prediction.toLowerCase().includes("pathogenic") ? (
-                            " Evo2 predicts this variant as potentially pathogenic. Consider clinical validation and review of functional studies before clinical decision-making."
-                          ) : variantResult.prediction.toLowerCase().includes("benign") ? (
-                            " While Evo2 predicts this variant as likely benign, clinical interpretation should consider patient phenotype and family history."
-                          ) : (
-                            " Evo2 cannot confidently classify this variant. The delta score falls in the uncertain range — additional clinical or functional evidence is recommended."
-                          )}
+                          <strong>Classification Note:</strong> This is a
+                          standalone analysis without ClinVar reference data.
+                          {variantResult.prediction
+                            .toLowerCase()
+                            .includes("pathogenic")
+                            ? " Evo2 predicts this variant as potentially pathogenic. Consider clinical validation and review of functional studies before clinical decision-making."
+                            : variantResult.prediction
+                                  .toLowerCase()
+                                  .includes("benign")
+                              ? " While Evo2 predicts this variant as likely benign, clinical interpretation should consider patient phenotype and family history."
+                              : " Evo2 cannot confidently classify this variant. The delta score falls in the uncertain range — additional clinical or functional evidence is recommended."}
                         </p>
                       </div>
                     </div>
@@ -875,25 +1062,31 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
                     variant="outline"
                     className="flex items-center gap-2 border-[#3c4f3d]/20 text-[#3c4f3d] hover:bg-[#e9eeea]"
                     onClick={() => {
-                      const date = new Date().toLocaleDateString('en-US', {
-                        month: '2-digit',
-                        day: '2-digit',
-                        year: 'numeric'
+                      const date = new Date().toLocaleDateString("en-US", {
+                        month: "2-digit",
+                        day: "2-digit",
+                        year: "numeric",
                       });
-                      const position = variantResult.position?.toLocaleString() || '';
-                      const gnomadValue = variantResult.population_frequency?.gnomad_af
+                      const position =
+                        variantResult.position?.toLocaleString() || "";
+                      const gnomadValue = variantResult.population_frequency
+                        ?.gnomad_af
                         ? `${(variantResult.population_frequency.gnomad_af * 100).toFixed(4)}%`
-                        : 'Not observed';
-                      const pubmedIds = variantResult.literature_context?.pubmed_ids?.slice(0, 5) || [];
+                        : "Not observed";
+                      const pubmedIds =
+                        variantResult.literature_context?.pubmed_ids?.slice(
+                          0,
+                          5,
+                        ) || [];
 
                       const report = `VARIANT ANALYSIS REPORT
 Generated: ${date}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 VARIANT INFORMATION
-• Gene: ${gene?.symbol || 'Unknown'}
+• Gene: ${gene?.symbol || "Unknown"}
 • Position: ${chromosome}:${position}
-• Change: ${variantResult.reference || 'N'}>${variantResult.alternative}
+• Change: ${variantResult.reference || "N"}>${variantResult.alternative}
 • Genome: ${genomeId}
 
 EVO2 PREDICTION
@@ -905,27 +1098,31 @@ POPULATION FREQUENCY
 • gnomAD v4.1: ${gnomadValue}
 
 ACMG EVIDENCE
-• Code: ${variantResult.acmg_evidence?.code || 'None'}
-• ${variantResult.acmg_evidence?.description || 'Computational evidence is inconclusive'}
+• Code: ${variantResult.acmg_evidence?.code || "None"}
+• ${variantResult.acmg_evidence?.description || "Computational evidence is inconclusive"}
 
-${variantResult.clinical_summary ? `MULTI-MODAL RAG CLINICAL SUMMARY
+${
+  variantResult.clinical_summary
+    ? `MULTI-MODAL RAG CLINICAL SUMMARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${variantResult.clinical_summary}
 
 EVIDENCE CONFIDENCE
-• Overall: ${variantResult.evidence_confidence?.overall?.level || 'N/A'} (${variantResult.evidence_confidence?.overall?.sources_available || 'N/A'} sources)
-• VEP: ${variantResult.evidence_confidence?.vep?.confidence || 'N/A'}
-• Evo2: ${variantResult.evidence_confidence?.evo2?.confidence || 'N/A'}
-• gnomAD: ${variantResult.evidence_confidence?.gnomad?.confidence || 'N/A'}
-• ClinVar: ${variantResult.evidence_confidence?.clinvar?.confidence || 'N/A'}
-• UniProt: ${variantResult.evidence_confidence?.uniprot?.confidence || 'N/A'}
-• PubMed: ${variantResult.evidence_confidence?.pubmed?.confidence || 'N/A'}
-` : `AI CLINICAL SUMMARY
-${variantResult.literature_context?.summary || 'No clinical summary available.'}
-`}
+• Overall: ${variantResult.evidence_confidence?.overall?.level || "N/A"} (${variantResult.evidence_confidence?.overall?.sources_available || "N/A"} sources)
+• VEP: ${variantResult.evidence_confidence?.vep?.confidence || "N/A"}
+• Evo2: ${variantResult.evidence_confidence?.evo2?.confidence || "N/A"}
+• gnomAD: ${variantResult.evidence_confidence?.gnomad?.confidence || "N/A"}
+• ClinVar: ${variantResult.evidence_confidence?.clinvar?.confidence || "N/A"}
+• UniProt: ${variantResult.evidence_confidence?.uniprot?.confidence || "N/A"}
+• PubMed: ${variantResult.evidence_confidence?.pubmed?.confidence || "N/A"}
+`
+    : `AI CLINICAL SUMMARY
+${variantResult.literature_context?.summary || "No clinical summary available."}
+`
+}
 
 REFERENCES
-${pubmedIds.length > 0 ? pubmedIds.map((id: string) => `• PMID:${id}`).join('\n') : '• No references available'}
+${pubmedIds.length > 0 ? pubmedIds.map((id: string) => `• PMID:${id}`).join("\n") : "• No references available"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DISCLAIMER: This report is generated by computational models using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation. Always verify critical findings with a board-certified clinical geneticist or molecular pathologist before making patient care decisions.
@@ -933,17 +1130,28 @@ DISCLAIMER: This report is generated by computational models using publicly avai
 Cross-reference: https://varsome.com/position/${genomeId}/${chromosome}-${variantResult.position}
 `;
 
-                      const blob = new Blob([report], { type: 'text/plain' });
+                      const blob = new Blob([report], { type: "text/plain" });
                       const url = URL.createObjectURL(blob);
-                      const a = document.createElement('a');
+                      const a = document.createElement("a");
                       a.href = url;
-                      a.download = `variant-report-${gene?.symbol || 'unknown'}-${variantResult.position}.txt`;
+                      a.download = `variant-report-${gene?.symbol || "unknown"}-${variantResult.position}.txt`;
                       a.click();
                       URL.revokeObjectURL(url);
                     }}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
+                      />
                     </svg>
                     Download Report
                   </Button>
@@ -951,25 +1159,31 @@ Cross-reference: https://varsome.com/position/${genomeId}/${chromosome}-${varian
                     variant="outline"
                     className="flex items-center gap-2 border-[#3c4f3d]/20 text-[#3c4f3d] hover:bg-[#e9eeea]"
                     onClick={async () => {
-                      const date = new Date().toLocaleDateString('en-US', {
-                        month: '2-digit',
-                        day: '2-digit',
-                        year: 'numeric'
+                      const date = new Date().toLocaleDateString("en-US", {
+                        month: "2-digit",
+                        day: "2-digit",
+                        year: "numeric",
                       });
-                      const position = variantResult.position?.toLocaleString() || '';
-                      const gnomadValue = variantResult.population_frequency?.gnomad_af
+                      const position =
+                        variantResult.position?.toLocaleString() || "";
+                      const gnomadValue = variantResult.population_frequency
+                        ?.gnomad_af
                         ? `${(variantResult.population_frequency.gnomad_af * 100).toFixed(4)}%`
-                        : 'Not observed';
-                      const pubmedIds = variantResult.literature_context?.pubmed_ids?.slice(0, 5) || [];
+                        : "Not observed";
+                      const pubmedIds =
+                        variantResult.literature_context?.pubmed_ids?.slice(
+                          0,
+                          5,
+                        ) || [];
 
                       const report = `VARIANT ANALYSIS REPORT
 Generated: ${date}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 VARIANT INFORMATION
-• Gene: ${gene?.symbol || 'Unknown'}
+• Gene: ${gene?.symbol || "Unknown"}
 • Position: ${chromosome}:${position}
-• Change: ${variantResult.reference || 'N'}>${variantResult.alternative}
+• Change: ${variantResult.reference || "N"}>${variantResult.alternative}
 • Genome: ${genomeId}
 
 EVO2 PREDICTION
@@ -981,27 +1195,31 @@ POPULATION FREQUENCY
 • gnomAD v4.1: ${gnomadValue}
 
 ACMG EVIDENCE
-• Code: ${variantResult.acmg_evidence?.code || 'None'}
-• ${variantResult.acmg_evidence?.description || 'Computational evidence is inconclusive'}
+• Code: ${variantResult.acmg_evidence?.code || "None"}
+• ${variantResult.acmg_evidence?.description || "Computational evidence is inconclusive"}
 
-${variantResult.clinical_summary ? `MULTI-MODAL RAG CLINICAL SUMMARY
+${
+  variantResult.clinical_summary
+    ? `MULTI-MODAL RAG CLINICAL SUMMARY
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${variantResult.clinical_summary}
 
 EVIDENCE CONFIDENCE
-• Overall: ${variantResult.evidence_confidence?.overall?.level || 'N/A'} (${variantResult.evidence_confidence?.overall?.sources_available || 'N/A'} sources)
-• VEP: ${variantResult.evidence_confidence?.vep?.confidence || 'N/A'}
-• Evo2: ${variantResult.evidence_confidence?.evo2?.confidence || 'N/A'}
-• gnomAD: ${variantResult.evidence_confidence?.gnomad?.confidence || 'N/A'}
-• ClinVar: ${variantResult.evidence_confidence?.clinvar?.confidence || 'N/A'}
-• UniProt: ${variantResult.evidence_confidence?.uniprot?.confidence || 'N/A'}
-• PubMed: ${variantResult.evidence_confidence?.pubmed?.confidence || 'N/A'}
-` : `AI CLINICAL SUMMARY
-${variantResult.literature_context?.summary || 'No clinical summary available.'}
-`}
+• Overall: ${variantResult.evidence_confidence?.overall?.level || "N/A"} (${variantResult.evidence_confidence?.overall?.sources_available || "N/A"} sources)
+• VEP: ${variantResult.evidence_confidence?.vep?.confidence || "N/A"}
+• Evo2: ${variantResult.evidence_confidence?.evo2?.confidence || "N/A"}
+• gnomAD: ${variantResult.evidence_confidence?.gnomad?.confidence || "N/A"}
+• ClinVar: ${variantResult.evidence_confidence?.clinvar?.confidence || "N/A"}
+• UniProt: ${variantResult.evidence_confidence?.uniprot?.confidence || "N/A"}
+• PubMed: ${variantResult.evidence_confidence?.pubmed?.confidence || "N/A"}
+`
+    : `AI CLINICAL SUMMARY
+${variantResult.literature_context?.summary || "No clinical summary available."}
+`
+}
 
 REFERENCES
-${pubmedIds.length > 0 ? pubmedIds.map((id: string) => `• PMID:${id}`).join('\n') : '• No references available'}
+${pubmedIds.length > 0 ? pubmedIds.map((id: string) => `• PMID:${id}`).join("\n") : "• No references available"}
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 DISCLAIMER: This report is generated by computational models using publicly available databases. It is intended for research and educational purposes only and must not be used as a substitute for professional clinical judgment, genetic counseling, or laboratory validation. Always verify critical findings with a board-certified clinical geneticist or molecular pathologist before making patient care decisions.
@@ -1011,14 +1229,25 @@ Cross-reference: https://varsome.com/position/${genomeId}/${chromosome}-${varian
 
                       try {
                         await navigator.clipboard.writeText(report);
-                        alert('Report copied to clipboard!');
+                        alert("Report copied to clipboard!");
                       } catch {
-                        alert('Failed to copy to clipboard');
+                        alert("Failed to copy to clipboard");
                       }
                     }}
                   >
-                    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      className="h-4 w-4"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"
+                      />
                     </svg>
                     Copy Report
                   </Button>
