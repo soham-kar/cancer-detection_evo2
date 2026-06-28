@@ -41,7 +41,8 @@ app = modal.App(
     image=design_image,
     secrets=[
         modal.Secret.from_name("nvidia-key"),
-        modal.Secret.from_name("groq-key"),
+        # Optional: only needed if Groq fallback is used
+        # modal.Secret.from_name("groq-key"),
     ],
 )
 
@@ -53,16 +54,15 @@ app = modal.App(
 @app.cls(
     cpu=2.0,
     memory=2048,
-    scaledown_window=300,       # Keep warm for 5 min between requests
-    container_idle_timeout=600,  # Allow up to 10 min for long LLM calls
-    allow_concurrent_inputs=5,
+    scaledown_window=600,  # Allow up to 10 min for long LLM calls
 )
+@modal.concurrent(max_inputs=5)
 class DesignAssistantService:
     """
     CPU-only Modal service for therapeutic design reasoning.
 
     Each container handles up to 5 concurrent requests.
-    Containers scale to zero when idle (after 5 min scaledown window).
+    Containers scale to zero when idle (after 10 min scaledown window).
     """
 
     @modal.enter()
@@ -82,7 +82,7 @@ class DesignAssistantService:
     # POST /analyze — One-shot therapeutic strategy
     # ------------------------------------------------------------------
 
-    @modal.fastapi_endpoint(method="POST", path="/analyze")
+    @modal.fastapi_endpoint(method="POST")
     async def analyze(self, report: dict) -> dict:
         """
         Analyze a variant report and return therapeutic recommendations.
@@ -111,7 +111,7 @@ class DesignAssistantService:
     # POST /chat — SSE streaming conversational Q&A (Phase 12)
     # ------------------------------------------------------------------
 
-    @modal.fastapi_endpoint(method="POST", path="/chat")
+    @modal.fastapi_endpoint(method="POST")
     async def chat(self, request: dict):
         """
         Streaming chat endpoint. Returns SSE (text/event-stream).
@@ -164,7 +164,7 @@ class DesignAssistantService:
     # Health check
     # ------------------------------------------------------------------
 
-    @modal.fastapi_endpoint(method="GET", path="/health")
+    @modal.fastapi_endpoint(method="GET")
     async def health(self) -> dict:
         return {"status": "healthy", "service": "design-assistant"}
 
