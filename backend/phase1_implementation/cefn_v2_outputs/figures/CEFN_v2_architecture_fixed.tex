@@ -1,0 +1,207 @@
+\documentclass[tikz,border=10pt]{standalone}
+\usepackage{tikz}
+\usepackage{amsmath,amssymb}
+\usetikzlibrary{shapes.geometric, arrows.meta, positioning, fit, backgrounds, calc}
+
+% ----------------------------------------------------------------------
+% Colour palette (matches paper figures)
+% ----------------------------------------------------------------------
+\definecolor{cefnblue}{HTML}{2E86AB}
+\definecolor{evo2mag}{HTML}{A23B72}
+\definecolor{amorange}{HTML}{F18F01}
+\definecolor{priororange}{HTML}{E67E22}
+\definecolor{evidencepurple}{HTML}{9B59B6}
+\definecolor{pathred}{HTML}{C73E1D}
+\definecolor{benignblue}{HTML}{2E86AB}
+\definecolor{vusgray}{HTML}{8D99AE}
+\definecolor{boxbg}{HTML}{F8F9FA}
+\definecolor{arrowgray}{HTML}{7F8C8D}
+\definecolor{dark}{HTML}{2B2D42}
+
+\begin{document}
+\begin{tikzpicture}[
+    font=\sffamily\scriptsize,
+    >=Stealth,
+    thick,
+    % Node styles
+    input/.style={
+        rectangle, draw=dark, fill=white, minimum width=1.6cm, minimum height=0.55cm,
+        align=center, line width=0.5pt
+    },
+    embed/.style={
+        rectangle, draw=dark, fill=#1!12, minimum width=1.5cm, minimum height=0.55cm,
+        align=center, rounded corners=2pt, line width=0.5pt
+    },
+    network/.style={
+        rectangle, draw=dark, fill=boxbg, minimum width=2.2cm, minimum height=0.8cm,
+        align=center, font=\sffamily\scriptsize\bfseries, rounded corners=3pt, line width=0.6pt
+    },
+    param/.style={
+        circle, draw=dark, fill=white, minimum size=0.5cm, inner sep=0pt, line width=0.5pt
+    },
+    decision/.style={
+        diamond, draw=dark, fill=white, aspect=2, minimum width=1.6cm, minimum height=0.8cm,
+        align=center, font=\sffamily\scriptsize\bfseries, inner sep=0pt, line width=0.6pt
+    },
+    output/.style={
+        rectangle, draw=dark, fill=#1!18, minimum width=1.6cm, minimum height=0.6cm,
+        align=center, font=\sffamily\scriptsize\bfseries, rounded corners=2pt, line width=0.5pt
+    },
+    arrow/.style={->, line width=0.6pt, draw=arrowgray},
+    dasharrow/.style={->, line width=0.6pt, draw=arrowgray, dashed},
+    annot/.style={font=\sffamily\tiny, text=arrowgray}
+]
+
+% ==================================================================
+% TOP SECTION: Predictors & Embeddings (side by side, wider spacing)
+% ==================================================================
+% --- Evo2 branch (left) ---
+\node[input, fill=evo2mag!10, draw=evo2mag] (evo2score) 
+    {\textbf{Evo2}\\$s_1 \in [0,1]$};
+\node[input, fill=evo2mag!10, draw=evo2mag, below=0.3cm of evo2score] (evo2mask) 
+    {Mask $m_1$};
+
+\node[embed=evo2mag, below=0.4cm of evo2mask, xshift=-0.8cm] (evo2embed) 
+    {$e_1$ present};
+\node[embed=evo2mag, below=0.4cm of evo2mask, xshift=+0.8cm] (evo2miss) 
+    {$e_1$ missing};
+
+\node[network, fill=evo2mag!8, draw=evo2mag, below=0.5cm of evo2embed, xshift=0.8cm, minimum width=2.4cm] (evo2concat) 
+    {concat};
+
+\draw[arrow] (evo2score.east) -- ++(0.3,0) |- (evo2concat.west);
+\draw[arrow] (evo2mask.east) -- ++(0.3,0) |- (evo2concat.west);
+\draw[arrow] (evo2embed.east) -- ++(0.2,0) |- ([yshift=0.1cm]evo2concat.west);
+\draw[dasharrow] (evo2miss.east) -- ++(0.2,0) |- ([yshift=-0.1cm]evo2concat.west);
+
+% --- AlphaMissense branch (right, more separation) ---
+\node[input, fill=amorange!10, draw=amorange, right=3.5cm of evo2score] (amscore) 
+    {\textbf{AlphaMissense}\\$s_2 \in [0,1]$};
+\node[input, fill=amorange!10, draw=amorange, below=0.3cm of amscore] (ammask) 
+    {Mask $m_2$};
+
+\node[embed=amorange, below=0.4cm of ammask, xshift=-0.8cm] (amembed) 
+    {$e_2$ present};
+\node[embed=amorange, below=0.4cm of ammask, xshift=+0.8cm] (ammiss) 
+    {$e_2$ missing};
+
+\node[network, fill=amorange!8, draw=amorange, below=0.5cm of amembed, xshift=0.8cm, minimum width=2.4cm] (amconcat) 
+    {concat};
+
+\draw[arrow] (amscore.east) -- ++(0.3,0) |- (amconcat.west);
+\draw[arrow] (ammask.east) -- ++(0.3,0) |- (amconcat.west);
+\draw[arrow] (amembed.east) -- ++(0.2,0) |- ([yshift=0.1cm]amconcat.west);
+\draw[dasharrow] (ammiss.east) -- ++(0.2,0) |- ([yshift=-0.1cm]amconcat.west);
+
+% --- Background box for embeddings ---
+\scoped[on background layer]{
+    \node[fit=(evo2embed)(ammiss), draw=gray, dashed, fill=gray!5,
+          inner sep=6pt, rounded corners=4pt] (embed_region) {};
+    \node[annot, above=0.05cm of embed_region.north] {Predictor‑specific missing embeddings};
+}
+
+% ==================================================================
+% DEEP SETS ENCODER (below both branches, centered)
+% ==================================================================
+\node[network, fill=evidencepurple!10, below=1.2cm of evo2concat, xshift=1.75cm, minimum width=5.0cm] (deepset_phi) 
+    {$\varphi$ MLP (shared)};
+
+\node[draw, circle, fill=white, minimum size=0.65cm, below=0.35cm of deepset_phi] (meanpool) {mean};
+\node[network, fill=evidencepurple!10, below=0.35cm of meanpool, minimum width=3.5cm] (deepset_rho) 
+    {$\rho$ MLP};
+\node[network, fill=evidencepurple!10, below=0.35cm of deepset_rho, minimum width=2.5cm] (deepset_out) 
+    {$z \in \mathbb{R}^{128}$};
+
+\draw[arrow] (evo2concat.south) -- ++(0,-0.25) -| ([xshift=-0.8cm]deepset_phi.north);
+\draw[arrow] (amconcat.south) -- ++(0,-0.25) -| ([xshift=0.8cm]deepset_phi.north);
+\draw[arrow] (deepset_phi.south) -- (meanpool.north);
+\draw[arrow] (meanpool.south) -- (deepset_rho.north);
+\draw[arrow] (deepset_rho.south) -- (deepset_out.north);
+
+\node[annot, left=0.1cm of deepset_phi.west, anchor=east, align=right] 
+    {Permutation‑invariant\\Deep Sets};
+
+% ==================================================================
+% PRIOR NETWORK (side branch, left of Deep Sets)
+% ==================================================================
+\node[input, fill=gray!12, draw=gray, left=2.5cm of deepset_phi.west, yshift=-0.5cm] (vartype) 
+    {Variant type\\$v \in \{0,1\}^6$};
+\node[network, fill=priororange!15, draw=priororange, right=1.2cm of vartype] (priornet) 
+    {Prior net};
+\node[param, right=0.4cm of priornet] (prior_alpha) 
+    {$\pi$};
+
+\draw[arrow] (vartype.east) -- (priornet.west);
+\draw[arrow] (priornet.east) -- (prior_alpha.west);
+\node[annot, below=0.05cm of priornet.south, text=priororange!80] {Conditioned on variant type};
+
+% ==================================================================
+% EVIDENCE NETWORK (below Deep Sets output + prior)
+% ==================================================================
+\node[network, fill=evidencepurple!15, draw=evidencepurple, below=0.8cm of deepset_out, minimum width=2.6cm] (concat_evidence) 
+    {concat};
+\draw[arrow] (deepset_out.south) -- ++(0,-0.2) -| (concat_evidence.north);
+\draw[arrow] (prior_alpha.east) -- ++(0.5,0) |- (concat_evidence.west);
+
+\node[network, fill=evidencepurple!20, draw=evidencepurple, below=0.35cm of concat_evidence, minimum width=3.0cm] (evidencenet) 
+    {Evidence Network};
+\node[param, below=0.35cm of evidencenet] (evidence_e) 
+    {$e_P, e_B$};
+\draw[arrow] (concat_evidence.south) -- (evidencenet.north);
+\draw[arrow] (evidencenet.south) -- (evidence_e.north);
+
+% ==================================================================
+% DIRICHLET PARAMETERS (below evidence)
+% ==================================================================
+\node[network, fill=pathred!8, draw=pathred, below=0.7cm of evidence_e, minimum width=3.4cm, minimum height=1.3cm, align=left] (dirichlet) 
+    {\hspace{4pt}\textbf{Dirichlet parameters}\\[3pt]
+     \hspace{4pt}$\alpha_P = \pi_P + e_P + 1$\\[1pt]
+     \hspace{4pt}$\alpha_B = \pi_B + e_B + 1$\\[1pt]
+     \hspace{4pt}$\alpha_{VUS} = 1$ \textbf{(fixed)}};
+
+\draw[arrow] (evidence_e.south) -- (dirichlet.north);
+
+% ==================================================================
+% BELIEF MASSES (below Dirichlet)
+% ==================================================================
+\node[network, fill=gray!10, draw=gray, below=0.6cm of dirichlet, minimum width=4.0cm, minimum height=1.2cm, align=left] (beliefs) 
+    {\hspace{4pt}\textbf{Belief masses (DST)}\\[3pt]
+     \hspace{4pt}$b_P = \frac{\alpha_P-1}{S}$ \quad
+     $b_B = \frac{\alpha_B-1}{S}$\\[2pt]
+     \hspace{4pt}$u = \frac{3}{S}$ \quad
+     $S = \sum\alpha$};
+
+\draw[arrow] (dirichlet.south) -- (beliefs.north);
+
+% ==================================================================
+% DECISION (below beliefs)
+% ==================================================================
+\node[decision, below=0.8cm of beliefs] (decision) 
+    {\textbf{Classify}};
+\draw[arrow] (beliefs.south) -- (decision.north);
+
+% ==================================================================
+% OUTPUT CLASSES (below decision, spread out)
+% ==================================================================
+\node[output=pathred, draw=pathred, below left=1.0cm and 0.8cm of decision] (outP) 
+    {Pathogenic};
+\node[output=benignblue, draw=benignblue, below=0.8cm of decision] (outB) 
+    {Benign};
+\node[output=vusgray, draw=vusgray, below right=1.0cm and 0.8cm of decision] (outV) 
+    {VUS};
+
+\draw[arrow] (decision.west) -- (outP.east) node[pos=0.5, above, font=\sffamily\tiny] {$b_P$ max};
+\draw[arrow] (decision.south) -- (outB.north) node[pos=0.5, left, font=\sffamily\tiny] {$b_B$ max};
+\draw[arrow] (decision.east) -- (outV.west) node[pos=0.5, above, font=\sffamily\tiny] {$u$ max};
+
+% Ignorance link
+\draw[dasharrow] (beliefs.east) -- ++(0.8,0) |- (outV.east) node[pos=0.5, right, font=\sffamily\tiny] {high $u$};
+
+% ==================================================================
+% PARAMETER COUNT
+% ==================================================================
+\node[annot, below=0.15cm of deepset_rho.south, text=dark] 
+    {\textbf{71,236 parameters}};
+
+\end{tikzpicture}
+\end{document}
