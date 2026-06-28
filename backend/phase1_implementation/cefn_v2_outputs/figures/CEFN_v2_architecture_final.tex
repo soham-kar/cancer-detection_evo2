@@ -31,8 +31,8 @@
                      align=center, font=\sffamily\scriptsize\bfseries, inner sep=0pt, line width=0.6pt},
     output/.style={rectangle, draw=dark, fill=#1!18, minimum width=1.4cm, minimum height=0.55cm,
                    align=center, font=\sffamily\scriptsize\bfseries, rounded corners=2pt, line width=0.5pt},
-    arrow/.style={->, line width=0.6pt, draw=arrowgray},
-    dasharrow/.style={->, line width=0.6pt, draw=arrowgray, dashed},
+    arrow/.style={->, line width=0.6pt, draw=arrowgray, shorten >=1.5pt},
+    dasharrow/.style={->, line width=0.6pt, draw=arrowgray, dashed, shorten >=1.5pt},
     annot/.style={font=\sffamily\tiny, text=arrowgray}
 ]
 
@@ -44,49 +44,53 @@
 \node[input, fill=evo2mag!10, draw=evo2mag, below=0.2cm of evo2s] (evo2m) 
     {Mask $m_1$};
 
-\node[embed=evo2mag, below=0.3cm of evo2m, xshift=-0.7cm] (evo2e) 
+\node[embed=evo2mag, below=0.45cm of evo2m, xshift=-0.7cm] (evo2e) 
     {$e_1$ present};
-\node[embed=evo2mag, below=0.3cm of evo2m, xshift=+0.7cm] (evo2miss) 
+\node[embed=evo2mag, below=0.45cm of evo2m, xshift=+0.7cm] (evo2miss) 
     {$e_1$ missing};
 
-\node[network, fill=evo2mag!8, draw=evo2mag, below=0.4cm of evo2e, xshift=0.7cm, minimum width=2.0cm] (evo2cat) 
+\node[network, fill=evo2mag!8, draw=evo2mag, below=0.95cm of evo2e, xshift=0.7cm, minimum width=2.0cm] (evo2cat) 
     {concat};
 
-\draw[arrow] (evo2s.east) -- ++(0.25,0) |- (evo2cat.west);
-\draw[arrow] (evo2m.east) -- ++(0.25,0) |- (evo2cat.west);
+\coordinate (e2in1) at ([yshift=0.10cm, xshift=0.15cm]evo2cat.east);
+\coordinate (e2in2) at ([yshift=-0.10cm, xshift=0.15cm]evo2cat.east);
+\draw[arrow] (evo2s.east) -- ++(0.35,0) |- (e2in1) -- ([yshift=0.10cm]evo2cat.east);
+\draw[arrow] (evo2m.east) -- ++(0.35,0) |- (e2in2) -- ([yshift=-0.10cm]evo2cat.east);
 \draw[arrow] (evo2e.east) -- ++(0.15,0) |- ([yshift=0.08cm]evo2cat.west);
 \draw[dasharrow] (evo2miss.east) -- ++(0.15,0) |- ([yshift=-0.08cm]evo2cat.west);
 
 % --- AM branch (right) ---
-\node[input, fill=amorange!10, draw=amorange, right=3.0cm of evo2s] (ams) 
+\node[input, fill=amorange!10, draw=amorange, right=3.2cm of evo2s] (ams) 
     {\textbf{AlphaMissense}\\$s_2 \in [0,1]$};
 \node[input, fill=amorange!10, draw=amorange, below=0.2cm of ams] (amm) 
     {Mask $m_2$};
 
-\node[embed=amorange, below=0.3cm of amm, xshift=-0.7cm] (ame) 
+\node[embed=amorange, below=0.45cm of amm, xshift=-0.7cm] (ame) 
     {$e_2$ present};
-\node[embed=amorange, below=0.3cm of amm, xshift=+0.7cm] (ammiss) 
+\node[embed=amorange, below=0.45cm of amm, xshift=+0.7cm] (ammiss) 
     {$e_2$ missing};
 
-\node[network, fill=amorange!8, draw=amorange, below=0.4cm of ame, xshift=0.7cm, minimum width=2.0cm] (amcat) 
+\node[network, fill=amorange!8, draw=amorange, below=0.95cm of ame, xshift=0.7cm, minimum width=2.0cm] (amcat) 
     {concat};
 
-\draw[arrow] (ams.east) -- ++(0.25,0) |- (amcat.west);
-\draw[arrow] (amm.east) -- ++(0.25,0) |- (amcat.west);
+\coordinate (amin1) at ([yshift=0.10cm, xshift=0.15cm]amcat.east);
+\coordinate (amin2) at ([yshift=-0.10cm, xshift=0.15cm]amcat.east);
+\draw[arrow] (ams.east) -- ++(0.35,0) |- (amin1) -- ([yshift=0.10cm]amcat.east);
+\draw[arrow] (amm.east) -- ++(0.35,0) |- (amin2) -- ([yshift=-0.10cm]amcat.east);
 \draw[arrow] (ame.east) -- ++(0.15,0) |- ([yshift=0.08cm]amcat.west);
 \draw[dasharrow] (ammiss.east) -- ++(0.15,0) |- ([yshift=-0.08cm]amcat.west);
 
-% Background box
+% Background box around embedding layer only, label above
 \scoped[on background layer]{
-    \node[fit=(evo2e)(ammiss), draw=gray, dashed, fill=gray!5,
-          inner sep=5pt, rounded corners=3pt] (embed_region) {};
+    \node[fit=(evo2e)(evo2miss)(ame)(ammiss), draw=gray, dashed, fill=gray!5,
+          inner sep=4pt, rounded corners=3pt, yshift=0.05cm] (embed_region) {};
 }
-\node[annot, below=0.05cm of embed_region.south] {Predictor‑specific missing embeddings};
+\node[annot, above=0.22cm of embed_region.north, anchor=south] {Predictor‑specific missing embeddings};
 
 % ==================================================================
 % ROW 2: DEEP SETS (centered below)
 % ==================================================================
-\node[network, fill=evidencepurple!10, draw=evidencepurple, below=0.9cm of evo2cat, xshift=1.5cm, minimum width=4.5cm] (deepset_phi) 
+\node[network, fill=evidencepurple!10, draw=evidencepurple, below=1.1cm of evo2cat, xshift=1.6cm, minimum width=4.5cm] (deepset_phi) 
     {$\varphi$ MLP (shared)};
 
 \node[draw, circle, fill=white, minimum size=0.55cm, below=0.25cm of deepset_phi] (meanpool) {mean};
@@ -95,8 +99,8 @@
 \node[network, fill=evidencepurple!10, draw=evidencepurple, below=0.25cm of deepset_rho, minimum width=2.2cm] (deepset_out) 
     {$z \in \mathbb{R}^{128}$};
 
-\draw[arrow] (evo2cat.south) -- ++(0,-0.2) -| ([xshift=-0.6cm]deepset_phi.north);
-\draw[arrow] (amcat.south) -- ++(0,-0.2) -| ([xshift=0.6cm]deepset_phi.north);
+\draw[arrow] (evo2cat.south) -- ++(0,-0.25) -| ([xshift=-0.6cm]deepset_phi.north);
+\draw[arrow] (amcat.south) -- ++(0,-0.25) -| ([xshift=0.6cm]deepset_phi.north);
 \draw[arrow] (deepset_phi.south) -- (meanpool.north);
 \draw[arrow] (meanpool.south) -- (deepset_rho.north);
 \draw[arrow] (deepset_rho.south) -- (deepset_out.north);
@@ -107,7 +111,7 @@
 % ==================================================================
 % ROW 3: PRIOR + EVIDENCE (side by side)
 % ==================================================================
-\node[input, fill=gray!12, draw=gray, left=2.0cm of deepset_phi.west, yshift=-0.4cm] (vartype) 
+\node[input, fill=gray!12, draw=gray, left=2.2cm of deepset_phi.west, yshift=-0.4cm] (vartype) 
     {Variant type\\$v \in \{0,1\}^6$};
 \node[network, fill=priororange!15, draw=priororange, right=0.8cm of vartype] (priornet) 
     {Prior net};

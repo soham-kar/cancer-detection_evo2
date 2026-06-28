@@ -570,11 +570,12 @@ def figure_6_dca(model, test_df):
     ax.plot(thresholds, nb_all, label='Treat all', color=COLORS["gray"], lw=1, linestyle=':')
     ax.plot(thresholds, nb_none, label='Treat none', color=COLORS["dark"], lw=1, linestyle='-.')
 
-    # Clinical threshold markers
+    # Clinical threshold markers (horizontal labels for readability)
     for pt, label in [(0.05, 'Screening'), (0.20, 'Diagnostic'), (0.50, 'Treatment')]:
         ax.axvline(x=pt, color=COLORS["gray"], linestyle='--', lw=0.5, alpha=0.4)
-        ax.text(pt + 0.01, 0.40, label, rotation=90, fontsize=7,
-                color=COLORS["gray"], ha='left', va='top')
+        ax.text(pt + 0.015, 0.45, label, rotation=0, fontsize=7,
+                color=COLORS["gray"], ha='left', va='top',
+                bbox=dict(boxstyle='round,pad=0.2', facecolor='white', edgecolor='none', alpha=0.7))
 
     # Shade where CEFN > Evo2
     ax.fill_between(thresholds, nb_evo2, nb_cefn, where=np.array(nb_cefn) > np.array(nb_evo2),
