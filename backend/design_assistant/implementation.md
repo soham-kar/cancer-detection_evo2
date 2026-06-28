@@ -18,14 +18,15 @@
 6. [Evidence Graph Design](#6-evidence-graph-design)
 7. [LLM Integration — Nemotron-3 Ultra 550B](#7-llm-integration--nemotron-3-ultra-550b)
 8. [Frontend Integration](#8-frontend-integration)
-9. [Proto-Tools Integration (Phase 2)](#9-proto-tools-integration-phase-2)
-10. [Implementation Phases & Roadmap](#10-implementation-phases--roadmap)
-11. [References & Papers](#11-references--papers)
-12. [Vlogs, Talks & Tutorials](#12-vlogs-talks--tutorials)
-13. [Code Resources & GitHub Links](#13-code-resources--github-links)
-14. [API Shape & Contracts](#14-api-shape--contracts)
-15. [Acceptance Criteria](#15-acceptance-criteria)
-16. [Risks, Constraints & Future Work](#16-risks-constraints--future-work)
+9. [Global Chatbot UX (Phase 12)](#9-global-chatbot-ux-phase-12)
+10. [Proto-Tools Integration (Phase 10)](#10-proto-tools-integration-phase-10)
+11. [Implementation Phases & Roadmap](#11-implementation-phases--roadmap)
+12. [References & Papers](#12-references--papers)
+13. [Vlogs, Talks & Tutorials](#13-vlogs-talks--tutorials)
+14. [Code Resources & GitHub Links](#14-code-resources--github-links)
+15. [API Shape & Contracts](#15-api-shape--contracts)
+16. [Acceptance Criteria](#16-acceptance-criteria)
+17. [Risks, Constraints & Future Work](#17-risks-constraints--future-work)
 
 ---
 
@@ -591,7 +592,197 @@ Return ONLY a JSON object.
 
 ## 8. Frontend Integration
 
-### 8.1 API Route: `/api/design-assistant`
+### 8.1 Global Chatbot Layout (New UX Direction)
+
+The assistant is exposed as a **persistent floating chatbot** that can be opened into a **right-side vertical panel** pushing the main content left. This replaces the earlier idea of burying the assistant inside the saved report modal.
+
+#### Closed State
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  HelixMind App                                                       │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │                                                             │    │
+│  │  Main Content Area                                          │    │
+│  │                                                             │    │
+│  │  ┌──────────────┐  ┌─────────────────────────────────────┐  │    │
+│  │  │ Gene List    │  │ Variant / Report / History View     │  │    │
+│  │  │ • BRCA1      │  │                                     │  │    │
+│  │  │ • TP53       │  │  [ClinVar table / report / etc.]  │  │    │
+│  │  │ • MSH2       │  │                                     │  │    │
+│  │  │ ...          │  │                                     │  │    │
+│  │  └──────────────┘  └─────────────────────────────────────┘  │    │
+│  │                                                             │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│                                          ┌────┐                      │
+│                                          │ 💬 │  ← floating button     │
+│                                          └────┘  (always bottom-right)│
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Open State — Two Vertical Columns
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  ┌────────────────────────────────────────────────────────────┐  ┌───────────────┐ │
+│  │                                                            │  │               │ │
+│  │  Main Content Area (narrower, pushed left)                │  │  Chat Panel   │ │
+│  │                                                            │  │  (right col)  │ │
+│  │  ┌──────────────┐  ┌───────────────────────────────┐       │  │               │ │
+│  │  │ Gene List    │  │ Variant / Report / History    │       │  │  Suggestions  │ │
+│  │  │ • BRCA1      │  │                               │       │  │  • Why VUS?   │ │
+│  │  │ • TP53       │  │  [Saved report modal content  │       │  │  • Domains?   │ │
+│  │  │ • MSH2       │  │   shown here or as overlay]   │       │  │  • Strategy?  │ │
+│  │  │ ...          │  │                               │       │  │               │ │
+│  │  └──────────────┘  └───────────────────────────────┘       │  │  ───────────  │ │
+│  │                                                            │  │               │ │
+│  │                                                            │  │  Chat History │ │
+│  │                                                            │  │  User: ...    │ │
+│  │                                                            │  │  Bot: ...     │ │
+│  │                                                            │  │               │ │
+│  │                                                            │  │  ───────────  │ │
+│  │                                                            │  │               │ │
+│  │                                                            │  │  [Type...] [→]│ │
+│  │                                                            │  │               │ │
+│  └────────────────────────────────────────────────────────────┘  └───────────────┘ │
+│                                                                                      │
+│                                          ┌────┐                                      │
+│                                          │ ✕  │  ← button now closes panel           │
+│                                          └────┘                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+#### Layout CSS
+
+```css
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-column {
+  flex: 1;
+  min-width: 0;        /* allows shrinking */
+  overflow: auto;
+  transition: flex 0.3s ease;
+}
+
+.chat-column {
+  width: 380px;
+  flex-shrink: 0;
+  border-left: 1px solid #e5e7eb;
+  background: white;
+  display: flex;
+  flex-direction: column;
+}
+```
+
+```jsx
+<div className="app-shell">
+  <main className="main-column">{children}</main>
+  {chatOpen && (
+    <aside className="chat-column">
+      <ChatPanel />
+    </aside>
+  )}
+</div>
+```
+
+#### Component Architecture
+
+```
+frontend/src/app/layout.tsx
+│
+├─ ActiveVariantProvider (React Context)
+│   └─ tracks: geneSymbol, position, reference, alternative, reportData
+│
+├─ MainContent
+│   └─ all existing pages and components
+│
+└─ ChatLayer (sibling to MainContent)
+    ├─ ChatFloatingButton (bottom-right, always visible)
+    └─ ChatSidePanel (slides/pushes from right when open)
+        ├─ SuggestionChips
+        ├─ MessageList
+        └─ MessageInput
+```
+
+#### New Files Needed
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/contexts/active-variant.tsx` | Data context only |
+| `frontend/src/hooks/use-active-variant.ts` | Convenience hook |
+| `frontend/src/components/chat/chat-floating-button.tsx` | 💬 floating button |
+| `frontend/src/components/chat/chat-side-panel.tsx` | Right-side panel |
+| `frontend/src/components/chat/chat-message-list.tsx` | Conversation history |
+| `frontend/src/components/chat/chat-suggestions.tsx` | Contextual suggestion chips |
+| `frontend/src/components/chat/chat-input.tsx` | Text input + send |
+| `frontend/src/app/api/chat/route.ts` | Conversational Q&A API |
+
+#### Suggestion Generation
+
+When a report is active, suggestions are generated client-side from the evidence graph:
+
+```typescript
+function getSuggestions(report: VariantReport): string[] {
+  const suggestions = [];
+
+  if (report.prediction?.includes("Uncertain")) {
+    suggestions.push("Why is this variant classified as VUS?");
+  }
+  if (report.externalScores?.alphamissense) {
+    suggestions.push("What does AlphaMissense predict for this variant?");
+  }
+  if (report.proteinContext?.domains?.length > 0) {
+    suggestions.push("Which protein domains are affected?");
+  }
+  if (report.ismScanData) {
+    suggestions.push("What does the ISM scan reveal?");
+  }
+  suggestions.push("What therapeutic strategy fits this variant?");
+  suggestions.push("What experiments should I run next?");
+
+  return suggestions.slice(0, 4);
+}
+```
+
+#### API Design: `POST /api/chat`
+
+```json
+{
+  "messages": [
+    { "role": "system", "content": "You are HelixDesign, a genomics assistant..." },
+    { "role": "user", "content": "Why is this variant a VUS?" }
+  ],
+  "variantContext": {
+    "geneSymbol": "BRCA1",
+    "position": 43094169,
+    "report": { ... }
+  }
+}
+```
+
+The backend uses `nvidia_client.answer()` or a new `chat()` method with the full conversation history.
+
+#### Relationship to Design Therapeutics Tab
+
+The existing **Design Therapeutics** tab inside the saved report modal **stays**. The floating chatbot is complementary:
+
+| Design Therapeutics Tab | Floating Chatbot |
+|------------------------|-------------------|
+| One-shot strategy recommendation | Interactive Q&A |
+| Full structured output | Free-form conversation |
+| Best for first review | Best for follow-up exploration |
+| Inside report modal | Always accessible |
+
+They can cross-reference each other — the chatbot can say *"See the full therapeutic analysis in the Design Therapeutics tab"* and the tab can say *"Ask follow-up questions in the chat."*
+
+### 8.2 API Route: `/api/design-assistant`
 
 **File:** `frontend/src/app/api/design-assistant/route.ts` (~230 lines)
 
@@ -616,7 +807,7 @@ const fieldMap = {
 };
 ```
 
-### 8.2 UI Component: `DesignTherapeutics`
+### 8.3 UI Component: `DesignTherapeutics`
 
 **File:** `frontend/src/components/design-therapeutics.tsx` (~400 lines)
 
@@ -633,9 +824,209 @@ const fieldMap = {
 
 ---
 
-## 9. Proto-Tools Integration (Phase 2)
+## 9. Global Chatbot UX (Phase 12)
 
-### 9.1 Tools to Integrate
+### 9.1 Design Rationale
+
+The current **Design Therapeutics** tab inside the saved report modal is useful for a one-shot strategy summary, but it is not interactive and it is hidden behind multiple clicks. A global, always-visible chatbot provides:
+
+- **Persistent access** — one click away from any page
+- **Context-aware Q&A** — suggestions change based on the active variant/report
+- **Non-intrusive layout** — opens as a right-side vertical panel that pushes the main content, not as an overlay
+- **Natural exploration** — researchers can ask follow-up questions while viewing the report
+
+### 9.2 Layout: Two Vertical Columns
+
+The chatbot is **not** embedded inside the `ActiveVariantContext` provider or inside the main content. It is a separate UI layer that sits as a sibling to the main app layout.
+
+#### Closed State
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  HelixMind App                                                       │
+│                                                                      │
+│  ┌─────────────────────────────────────────────────────────────┐    │
+│  │  Main Content Area                                          │    │
+│  │  ┌──────────────┐  ┌─────────────────────────────────────┐  │    │
+│  │  │ Gene List    │  │ Variant / Report / History View     │  │    │
+│  │  │ • BRCA1      │  │                                     │  │    │
+│  │  │ • TP53       │  │  [ClinVar table / report / etc.]  │  │    │
+│  │  │ • MSH2       │  │                                     │  │    │
+│  │  │ ...          │  │                                     │  │    │
+│  │  └──────────────┘  └─────────────────────────────────────┘  │    │
+│  └─────────────────────────────────────────────────────────────┘    │
+│                                                                      │
+│                                          ┌────┐                      │
+│                                          │ 💬 │  ← floating button   │
+│                                          └────┘                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Open State
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────────┐
+│                                                                                      │
+│  ┌────────────────────────────────────────────────────────────┐  ┌───────────────┐  │
+│  │                                                            │  │               │  │
+│  │  Main Content Area (narrower, pushed left)                 │  │  Chat Panel   │  │
+│  │                                                            │  │  (right col)  │  │
+│  │  ┌──────────────┐  ┌───────────────────────────────┐       │  │               │  │
+│  │  │ Gene List    │  │ Variant / Report / History    │       │  │  Suggestions  │  │
+│  │  │ • BRCA1      │  │                               │       │  │  • Why VUS?   │  │
+│  │  │ • TP53       │  │  [Saved report modal content  │       │  │  • Domains?   │  │
+│  │  │ • MSH2       │  │   shown here or as overlay]   │       │  │  • Strategy?  │  │
+│  │  │ ...          │  │                               │       │  │               │  │
+│  │  └──────────────┘  └───────────────────────────────┘       │  │  ───────────  │  │
+│  │                                                            │  │               │  │
+│  │                                                            │  │  Chat History │  │
+│  │                                                            │  │  User: ...    │  │
+│  │                                                            │  │  Bot: ...     │  │
+│  │                                                            │  │               │  │
+│  │                                                            │  │  ───────────  │  │
+│  │                                                            │  │               │  │
+│  │                                                            │  │  [Type...] [→]│  │
+│  │                                                            │  │               │  │
+│  └────────────────────────────────────────────────────────────┘  └───────────────┘  │
+│                                                                                      │
+│                                          ┌────┐                                      │
+│                                          │ ✕  │  ← button now closes panel           │
+│                                          └────┘                                      │
+└─────────────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 9.3 CSS Layout
+
+```css
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-column {
+  flex: 1;
+  min-width: 0;        /* allows shrinking */
+  overflow: auto;
+  transition: flex 0.3s ease;
+}
+
+.chat-column {
+  width: 380px;
+  flex-shrink: 0;
+  border-left: 1px solid #e5e7eb;
+  background: white;
+  display: flex;
+  flex-direction: column;
+}
+```
+
+```jsx
+<div className="app-shell">
+  <main className="main-column">{children}</main>
+  {chatOpen && (
+    <aside className="chat-column">
+      <ChatPanel />
+    </aside>
+  )}
+</div>
+```
+
+### 9.4 Component Architecture
+
+```
+frontend/src/app/layout.tsx
+│
+├─ ActiveVariantProvider (React Context)
+│   └─ tracks: geneSymbol, position, reference, alternative, reportData
+│
+├─ MainContent
+│   └─ all existing pages and components
+│
+└─ ChatLayer (sibling to MainContent)
+    ├─ ChatFloatingButton (bottom-right, always visible)
+    └─ ChatSidePanel (slides/pushes from right when open)
+        ├─ SuggestionChips
+        ├─ MessageList
+        └─ MessageInput
+```
+
+### 9.5 New Files Needed
+
+| File | Purpose |
+|------|---------|
+| `frontend/src/contexts/active-variant.tsx` | Data context only |
+| `frontend/src/hooks/use-active-variant.ts` | Convenience hook |
+| `frontend/src/components/chat/chat-floating-button.tsx` | 💬 floating button |
+| `frontend/src/components/chat/chat-side-panel.tsx` | Right-side panel |
+| `frontend/src/components/chat/chat-message-list.tsx` | Conversation history |
+| `frontend/src/components/chat/chat-suggestions.tsx` | Contextual suggestion chips |
+| `frontend/src/components/chat/chat-input.tsx` | Text input + send |
+| `frontend/src/app/api/chat/route.ts` | Conversational Q&A API |
+
+### 9.6 Context-Aware Suggestions
+
+When a report is active, suggestions are generated client-side from the evidence graph:
+
+```typescript
+function getSuggestions(report: VariantReport): string[] {
+  const suggestions = [];
+
+  if (report.prediction?.includes("Uncertain")) {
+    suggestions.push("Why is this variant classified as VUS?");
+  }
+  if (report.externalScores?.alphamissense) {
+    suggestions.push("What does AlphaMissense predict for this variant?");
+  }
+  if (report.proteinContext?.domains?.length > 0) {
+    suggestions.push("Which protein domains are affected?");
+  }
+  if (report.ismScanData) {
+    suggestions.push("What does the ISM scan reveal?");
+  }
+  suggestions.push("What therapeutic strategy fits this variant?");
+  suggestions.push("What experiments should I run next?");
+
+  return suggestions.slice(0, 4);
+}
+```
+
+### 9.7 API Contract: `POST /api/chat`
+
+```json
+{
+  "messages": [
+    { "role": "system", "content": "You are HelixDesign, a genomics assistant..." },
+    { "role": "user", "content": "Why is this variant a VUS?" }
+  ],
+  "variantContext": {
+    "geneSymbol": "BRCA1",
+    "position": 43094169,
+    "report": { ... }
+  }
+}
+```
+
+The backend uses `nvidia_client.answer()` or a new `chat()` method with the full conversation history.
+
+### 9.8 Relationship to Design Therapeutics Tab
+
+The existing **Design Therapeutics** tab inside the saved report modal **stays**. The floating chatbot is complementary:
+
+| Design Therapeutics Tab | Floating Chatbot |
+|------------------------|-------------------|
+| One-shot strategy recommendation | Interactive Q&A |
+| Full structured output | Free-form conversation |
+| Best for first review | Best for follow-up exploration |
+| Inside report modal | Always accessible |
+
+They can cross-reference each other — the chatbot can say *"See the full therapeutic analysis in the Design Therapeutics tab"* and the tab can say *"Ask follow-up questions in the chat."*
+
+---
+
+## 10. Proto-Tools Integration (Phase 10)
+
+### 10.1 Tools to Integrate
 
 | Tool | Purpose | When to Call | Expected Latency |
 |------|---------|-------------|-----------------|
@@ -648,7 +1039,7 @@ const fieldMap = {
 | **IPSAE** | Interface prediction accuracy | protein_binder_design | ~10s |
 | **USalign/TMalign** | Structural comparison (WT vs mutant) | structural_rescue | ~30s |
 
-### 9.2 Tool Orchestrator Design
+### 10.2 Tool Orchestrator Design
 
 ```python
 class ToolOrchestrator:
@@ -667,7 +1058,7 @@ class ToolOrchestrator:
         return self.results
 ```
 
-### 9.3 Proto-Tools Client
+### 10.3 Proto-Tools Client
 
 ```python
 class ProtoToolsClient:
@@ -682,7 +1073,7 @@ class ProtoToolsClient:
 
 ---
 
-## 10. Implementation Phases & Roadmap
+## 11. Implementation Phases & Roadmap
 
 ### Phase 1: Reasoning Skeleton ✅ COMPLETED (2026-06-28)
 
@@ -702,7 +1093,7 @@ class ProtoToolsClient:
 | LLM anti-hallucination prompts | ✅ | `strategy_selector.py` |
 | Debug log removal & cleanup | ✅ | `route.ts` |
 
-### Phase 2: Proto-Tools Integration 🔜 NEXT
+### Phase 10: Proto-Tools Integration 🔜 NEXT
 
 | Deliverable | Estimated Effort | Dependencies |
 |------------|-----------------|--------------|
@@ -715,7 +1106,7 @@ class ProtoToolsClient:
 | Evidence graph v2 (tool nodes) | 2 hours | tool_orchestrator |
 | Response builder v2 (tool outputs) | 1 hour | tool_orchestrator |
 
-### Phase 3: Richer Strategy Output
+### Phase 11: Richer Strategy Output
 
 | Deliverable | Estimated Effort |
 |------------|-----------------|
@@ -724,16 +1115,20 @@ class ProtoToolsClient:
 | Per-source confidence visualization | 2 hours |
 | Strategy comparison table | 2 hours |
 
-### Phase 4: Follow-up Q&A
+### Phase 12: Global Chatbot UX
 
 | Deliverable | Estimated Effort |
 |------------|-----------------|
-| Chat input in Design Therapeutics panel | 3 hours |
+| Global floating chatbot button | 2 hours |
+| Right-side chat panel (pushes content) | 3 hours |
+| ActiveVariantContext provider | 1 hour |
+| Contextual suggestion chips | 2 hours |
+| Chat input in side panel | 2 hours |
 | Conversation context management | 3 hours |
 | Nemotron Q&A mode integration | 2 hours |
 | Session persistence | 2 hours |
 
-### Phase 5: Demo Preparation
+### Phase 13: Demo Preparation
 
 | Deliverable | Estimated Effort |
 |------------|-----------------|
@@ -829,6 +1224,7 @@ class ProtoToolsClient:
 | **Design Assistant Module** | `backend/design_assistant/` |
 | **Frontend API Route** | `frontend/src/app/api/design-assistant/route.ts` |
 | **Design Therapeutics Panel** | `frontend/src/components/design-therapeutics.tsx` |
+| **Floating Chatbot (planned)** | `frontend/src/components/chat/` |
 | **Implementation Plan** | `backend/design_assistant/implementation.md` |
 
 ### External Repositories
@@ -943,20 +1339,22 @@ Authorization: Bearer <clerk_session_token>
 - [x] Frontend panel integrated into saved report modal
 - [x] Clean git history with professional commit messages
 
-### v2 (Phase 2 Target)
+### v2 (Phase 10 Target)
 
 - [ ] At least 3 proto-tools integrated (UniProt, AlphaFold DB, SpliceAI)
 - [ ] Tool outputs enrich evidence graph nodes
 - [ ] Tool failures don't break the assistant
 - [ ] "Domains: none" issue resolved via UniProt Fetch
 
-### v3 (Phase 3-4 Target)
+### v3 (Phase 11-12 Target)
 
 - [ ] Strategy differential shows why alternatives were rejected
+- [ ] Global floating chatbot with right-side panel
+- [ ] Context-aware suggestions based on active variant
 - [ ] Follow-up Q&A works with conversation memory
 - [ ] Confidence breakdown by evidence quality, model agreement, tool availability
 
-### Demo-Ready (Phase 5 Target)
+### Demo-Ready (Phase 13 Target)
 
 - [ ] 4 curated example variants showing different strategies
 - [ ] All loading/error states polished
@@ -985,7 +1383,8 @@ Authorization: Bearer <clerk_session_token>
 4. **Multi-Variant Analysis**: Analyze all variants in a gene simultaneously for combinatorial effects
 5. **Population-Specific Calibration**: Adjust thresholds based on ancestry-specific gnomAD frequencies
 6. **Real-time Collaboration**: Allow multiple researchers to discuss and annotate assistant outputs
-7. **Automated Report Generation**: Produce publication-ready variant interpretation reports
+7. **Persistent Chatbot**: Store chat history per variant/user for longitudinal research workflows
+8. **Automated Report Generation**: Produce publication-ready variant interpretation reports
 
 ---
 
