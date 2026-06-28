@@ -1809,7 +1809,220 @@ Authorization: Bearer <clerk_session_token>
 
 ---
 
-## Appendix A: Environment Setup
+## Appendix A: Production Deployment Architecture
+
+### A.1 Modal Account Split
+
+Three separate Modal accounts for cost isolation and blast-radius containment:
+
+| Modal Account | Services | GPU Needed | Monthly Est. |
+|--------------|----------|------------|-------------|
+| **Account 1: `helixmind-evo2`** | Evo2-7B variant analysis + Design Assistant | H100 (Evo2 only) | ~$50 |
+| **Account 2: `helixmind-proto`** | Proto-tools heavy (ESMFold2, AlphaFold2, ProteinMPNN, BioEmu, BindCraft) | A100 | ~$10-30 |
+| **Account 3: `helixmind-rag`** | PubMed RAG + Multimodal RAG (already separate Modal apps) | None (CPU) | ~$2 |
+
+**Why split:**
+- Proto-tools GPU usage is unpredictable — a single BindCraft run can take 30 min on A100
+- Evo2 analysis budget stays predictable and isolated
+- If proto-tools account hits limits, variant analysis still works
+- Separate billing for grant reporting (compute vs. design tools)
+
+### A.2 Full Architecture Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                           DNS / CDN (Cloudflare)                          │
+│  app.helixmind.ai ──► Vercel    api.helixmind.ai ──► Vercel              │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                         VERCEL (Frontend Host)                             │
+│                                                                            │
+│  Next.js 15 (standalone output)                                            │
+│  ├─ Clerk Auth (middleware)                                                │
+│  ├─ API Routes:                                                            │
+│  │   ├─ /api/analyze ──────────► Modal Account 1 (Evo2 H100)              │
+│  │   ├─ /api/design-assistant ─► Modal Account 1 (Design Assistant CPU)   │
+│  │   ├─ /api/chat ─────────────► Modal Account 1 (Chat Agent CPU)        │
+│  │   ├─ /api/vep ──────────────► Ensembl REST (public)                    │
+│  │   ├─ /api/history ──────────► Neon PostgreSQL                           │
+│  │   └─ /api/stripe/* ─────────► Stripe API                                │
+│  └─ Static assets (CDN-cached)                                             │
+└──────────────────────────────────┬───────────────────────────────────────┘
+                                   │
+                    ┌──────────────┼──────────────┐
+                    ▼              ▼              ▼
+┌──────────────────────┐ ┌──────────────────────┐ ┌──────────────────────┐
+│  MODAL ACCOUNT 1     │ │  MODAL ACCOUNT 2     │ │  MODAL ACCOUNT 3     │
+│  helixmind-evo2      │ │  helixmind-proto     │ │  helixmind-rag       │
+│                      │ │                      │ │                      │
+│  ┌────────────────┐  │ │  ┌────────────────┐  │ │  ┌────────────────┐  │
+│  │ variant-analysis│  │ │  │ proto-tools    │  │ │  │ pubmed-rag     │  │
+│  │ (H100 GPU)      │  │ │  │ (A100 GPU)     │  │ │  │ (CPU, 1GB)    │  │
+│  │                 │  │ │  │                │  │ │  │                │  │
+│  │ Evo2-7B         │  │ │  │ ESMFold2       │  │ │  │ SmartPubMedRAG │  │
+│  │ gnomAD v4.1     │  │ │  │ AlphaFold2     │  │ │  └────────────────┘  │
+│  │ ClinVar         │  │ │  │ ProteinMPNN    │  │ │                      │
+│  │ AlphaMissense   │  │ │  │ BioEmu         │  │ │  ┌────────────────┐  │
+│  │ PubMed RAG      │  │ │  │ BindCraft      │  │ │  │ multimodal-rag │  │
+│  │ ACMG codes      │  │ │  │ RFdiffusion3   │  │ │  │ (CPU, 1GB)    │  │
+│  └────────────────┘  │ │  │ Boltz-2         │  │ │  │                │  │
+│                      │ │  └────────────────┘  │ │  │ Llama 3.3 70B  │  │
+│  ┌────────────────┐  │ │                      │ │  │ synthesis      │  │
+│  │ design-assistant│  │ │  ┌────────────────┐  │ │  └────────────────┘  │
+│  │ (CPU, 2GB)      │  │ │  │ proto-tools-lite│  │ │                      │
+│  │                 │  │ │  │ (CPU, 2GB)     │  │ │  Secrets:            │
+│  │ EvidenceGraph   │  │ │  │                │  │ │  ├─ entrez-config    │
+│  │ StrategySelector│  │ │  │ SpliceAI       │  │ │  ├─ groq-config      │
+│  │ ChatAgent       │  │ │  │ Pangolin       │  │ │  └─ redis-credentials│
+│  │ ResponseBuilder │  │ │  │ DSSP           │  │ │                      │
+│  │                 │  │ │  │ UniProt Fetch  │  │ │                      │
+│  │ External calls: │  │ │  │ Ensembl VEP    │  │ │                      │
+│  │ ├─ Nemotron 550B│  │ │  │ InterProScan   │  │ │                      │
+│  │ └─ Groq (fallbk)│  │ │  │ ESM2 Scoring   │  │ │                      │
+│  │                 │  │ │  └────────────────┘  │ │                      │
+│  │ Secrets:        │  │ │                      │ │                      │
+│  │ ├─ nvidia-key   │  │ │  Secrets:            │ │                      │
+│  │ └─ groq-key     │  │ │  └─ (none, public)   │ │                      │
+│  └────────────────┘  │ │                      │ │                      │
+│                      │ │                      │ │                      │
+│  Volumes:            │ │  Volumes:            │ │                      │
+│  ├─ hf_cache (Evo2)  │ │  └─ proto-cache      │ │                      │
+│  └─ alphamissense_db │ │                      │ │                      │
+└──────────────────────┘ └──────────────────────┘ └──────────────────────┘
+                                   │
+                                   ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│                          DATA LAYER                                        │
+│                                                                            │
+│  ┌─────────────────────────┐    ┌─────────────────────────┐              │
+│  │  Neon PostgreSQL        │    │  Upstash Redis           │              │
+│  │  (Serverless)           │    │  (Serverless)            │              │
+│  │                         │    │                          │              │
+│  │  • User                 │    │  • Session cache         │              │
+│  │  • Payment              │    │  • Rate limiting         │              │
+│  │  • AnalysisReport       │    │  • PubMed RAG cache      │              │
+│  │  • ChatSession (new)    │    │  • Chat context cache    │              │
+│  │  • ChatMessage (new)    │    │                          │              │
+│  └─────────────────────────┘    └─────────────────────────┘              │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+### A.3 Service-to-Account Mapping
+
+```
+Frontend (Vercel)
+    │
+    ├── POST /api/analyze
+    │   └──► Modal Account 1: variant-analysis (H100)
+    │        └──► https://karsoham529--variant-analysis-analyze-single-variant.modal.run
+    │
+    ├── POST /api/design-assistant
+    │   └──► Modal Account 1: design-assistant (CPU)
+    │        └──► https://karsoham529--design-assistant-analyze.modal.run
+    │
+    ├── POST /api/chat (SSE)
+    │   └──► Modal Account 1: design-assistant (CPU)
+    │        └──► https://karsoham529--design-assistant-chat.modal.run
+    │
+    ├── POST /api/tools/spliceai
+    │   └──► Modal Account 2: proto-tools-lite (CPU)
+    │        └──► https://helixmind-proto--proto-tools-lite-run.modal.run
+    │
+    ├── POST /api/tools/esmfold
+    │   └──► Modal Account 2: proto-tools (A100)
+    │        └──► https://helixmind-proto--proto-tools-run.modal.run
+    │
+    ├── POST /api/tools/bindcraft
+    │   └──► Modal Account 2: proto-tools (A100)
+    │        └──► https://helixmind-proto--proto-tools-run.modal.run
+    │
+    └── POST /api/rag/pubmed
+        └──► Modal Account 3: pubmed-rag (CPU)
+             └──► https://karsoham529--pubmed-rag-search.modal.run
+```
+
+### A.4 Modal Account Setup
+
+```bash
+# Account 1: helixmind-evo2 (your existing account)
+modal token set --token-id tok_evo2_xxx
+modal deploy backend/main.py                    # variant-analysis (H100)
+modal deploy backend/design_assistant/modal_deploy.py  # design-assistant (CPU)
+
+# Account 2: helixmind-proto (new account)
+modal token set --token-id tok_proto_xxx
+modal deploy backend/proto_tools/modal_deploy.py       # proto-tools (A100)
+modal deploy backend/proto_tools/modal_deploy_lite.py  # proto-tools-lite (CPU)
+
+# Account 3: helixmind-rag (your existing account, already deployed)
+modal token set --token-id tok_evo2_xxx
+modal deploy backend/pubmed_rag.py              # pubmed-rag (CPU)
+modal deploy backend/multimodal_rag.py          # multimodal-rag (CPU)
+```
+
+### A.5 Environment Variables (Vercel)
+
+```
+# Modal endpoints
+NEXT_PUBLIC_ANALYZE_SINGLE_VARIANT_BASE_URL=https://karsoham529--variant-analysis-analyze-single-variant.modal.run
+DESIGN_ASSISTANT_ANALYZE_URL=https://karsoham529--design-assistant-analyze.modal.run
+DESIGN_ASSISTANT_CHAT_URL=https://karsoham529--design-assistant-chat.modal.run
+PROTO_TOOLS_URL=https://helixmind-proto--proto-tools-run.modal.run
+PROTO_TOOLS_LITE_URL=https://helixmind-proto--proto-tools-lite-run.modal.run
+
+# API keys (never use NEXT_PUBLIC_ prefix for secrets)
+NVIDIA_API_KEY=nvapi-...
+GROQ_API_KEY=gsk_...
+
+# Database
+DATABASE_URL=postgresql://neondb_owner:...@ep-green-dawn-xxx-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require
+
+# Clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=pk_test_...
+CLERK_SECRET_KEY=sk_test_...
+
+# Stripe
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+
+# Redis
+REDIS_URL=redis://...
+```
+
+### A.6 Migration Steps (Dev → Production)
+
+| Step | What | Effort | Breaks Dev? |
+|------|------|--------|-------------|
+| 1 | Extract design assistant to Modal Account 1 CPU | 2-3 hours | No (keep subprocess as fallback) |
+| 2 | Create Modal Account 2 (`helixmind-proto`) | 15 min | No |
+| 3 | Deploy proto-tools-lite to Account 2 CPU | 1 hour | No |
+| 4 | Deploy proto-tools-heavy to Account 2 A100 | 1 hour | No |
+| 5 | Switch Prisma from SQLite → Neon PostgreSQL | 1 hour | Yes (data migration) |
+| 6 | Add `output: 'standalone'` to next.config.js | 5 min | No |
+| 7 | Deploy frontend to Vercel | 30 min | No |
+| 8 | Set up GitHub Actions CI/CD | 1 hour | No |
+| 9 | Add health check endpoints to all Modal services | 30 min | No |
+| 10 | DNS + Cloudflare setup | 30 min | No |
+
+### A.7 Cost Estimate (Monthly, Production)
+
+| Service | Tier | Est. Cost |
+|---------|------|-----------|
+| **Vercel** | Pro | $20 |
+| **Modal Account 1** (H100 + CPU) | Pay-per-use | ~$50 |
+| **Modal Account 2** (A100 + CPU) | Pay-per-use | ~$10-30 |
+| **Modal Account 3** (CPU only) | Pay-per-use | ~$2 |
+| **Neon PostgreSQL** | Free → Scale | $0-19 |
+| **Upstash Redis** | Free tier | $0 |
+| **Clerk** | Free tier (10K MAU) | $0 |
+| **Cloudflare** | Free tier | $0 |
+| **TOTAL** | | **~$85-120/mo** |
+
+---
+
+## Appendix B: Environment Setup
 
 ### Prerequisites
 
@@ -1851,7 +2064,7 @@ echo '{"gene_symbol":"BRCA1","position":43094169,...}' | python design_assistant
 
 ---
 
-## Appendix B: Glossary
+## Appendix C: Glossary
 
 | Term | Definition |
 |------|-----------|
