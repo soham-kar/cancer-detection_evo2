@@ -6,7 +6,7 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
@@ -23,6 +23,7 @@ model User {
 
   payments         Payment[]
   analysisReports  AnalysisReport[]
+  chatSessions     ChatSession[]
 
   @@map("users")
 }
@@ -56,36 +57,72 @@ model AnalysisReport {
   clinvarClassification    String?
   variationType            String?
   clinvarId                String?
-  // Store enrichment data as JSON strings (SQLite compatible)
-  populationFrequency      String?
-  acmgEvidence             String?
-  literatureContext        String?
+  // Enrichment data as native PostgreSQL JSON
+  populationFrequency      Json?
+  acmgEvidence             Json?
+  literatureContext        Json?
   // Multi-modal RAG output
-  clinicalSummary        String?
-  evidenceConfidence     String?
+  clinicalSummary          String?
+  evidenceConfidence       Json?
   // In-Silico Mutagenesis scan data
-  ismScanData            String?
+  ismScanData              Json?
   // XAI confidence factors (backend-computed)
-  xaiFactors             String?
+  xaiFactors               Json?
   // Counterfactual analysis
-  counterfactuals        String?
+  counterfactuals        Json?
   // ACMG/AMP criteria mapping
-  acmgCriteria           String?
+  acmgCriteria             Json?
   // Knowledge graph (gene-disease-drug)
-  knowledgeGraph         String?
+  knowledgeGraph           Json?
   // External scores (CADD, REVEL)
-  externalScores         String?
+  externalScores           Json?
   // LLM-refined ACMG criteria
-  acmgCriteriaRefined    String?
+  acmgCriteriaRefined      Json?
   // Analysis source: 'clinvar' or 'custom'
   analysisSource           String?
   // VEP annotation: consequence, aaChange, codons, etc.
-  vepAnnotation            String?
+  vepAnnotation            Json?
   createdAt                DateTime @default(now())
 
   user User @relation(fields: [clerkUserId], references: [clerkId])
 
+  chatSessions ChatSession[]
+
   @@index([clerkUserId])
   @@index([geneSymbol])
   @@map("analysis_reports")
+}
+
+model ChatSession {
+  id              String   @id @default(cuid())
+  clerkUserId     String
+  analysisReportId String?
+  title           String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user         User           @relation(fields: [clerkUserId], references: [clerkId])
+  analysisReport AnalysisReport? @relation(fields: [analysisReportId], references: [id], onDelete: SetNull)
+  messages     ChatMessage[]
+
+  @@index([clerkUserId])
+  @@index([analysisReportId])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id            String   @id @default(cuid())
+  sessionId     String
+  role          String   // 'user' | 'assistant' | 'system'
+  content       String   @db.Text
+  toolCalls     Json?    // structured tool calls from assistant
+  toolResults   Json?    // structured tool results
+  metadata      Json?    // latency, model, tokens, etc.
+  createdAt     DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@map("chat_messages")
 }

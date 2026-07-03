@@ -71,12 +71,12 @@ interface DesignTherapeuticsProps {
         score: number;
         classification: string;
       } | null;
-    };
+    } | null;
     vepAnnotation?: {
       consequence?: string;
       impact?: string;
-      aaChange?: string;
-      aminoAcids?: string;
+      aaChange?: string | null;
+      aminoAcids?: string | null;
     } | null;
     ismScanData?: {
       summary?: {

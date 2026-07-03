@@ -14,7 +14,8 @@
 //   - Paid credits: No cooldown, unlimited analyses
 // =============================================================================
 
-import { NextRequest, NextResponse } from "next/server";
+import type { NextRequest } from "next/server";
+import { NextResponse } from "next/server";
 import {
   getOrCreateUser,
   deductCredit,
@@ -22,6 +23,7 @@ import {
   setCooldown,
 } from "~/lib/user-utils";
 import { db } from "~/lib/db";
+import type { InputJsonValue } from "@prisma/client/runtime/library";
 
 // Credit system configuration
 const FREE_LIMIT_PER_DAY = 10; // Maximum free analyses per day
@@ -214,7 +216,7 @@ export async function POST(request: NextRequest) {
         cooldownUntil.setDate(cooldownUntil.getDate() + COOLDOWN_DAYS);
         try {
           await setCooldown(user.clerkId, cooldownUntil);
-        } catch (_) {}
+        } catch {}
         return NextResponse.json(
           {
             error: "free_limit_reached",
@@ -230,12 +232,12 @@ export async function POST(request: NextRequest) {
       if (user.credits > 0) {
         try {
           await deductCredit(user.clerkId);
-        } catch (_) {}
+        } catch {}
         creditUsed = "paid";
       } else {
         try {
           await incrementFreeRuns(user.clerkId);
-        } catch (_) {}
+        } catch {}
         creditUsed = "free";
       }
     }
@@ -326,9 +328,11 @@ export async function POST(request: NextRequest) {
     // ===== Stage 6: Database Persistence (skip if DB unavailable) =====
     if (dbAvailable) {
       try {
-        // Serialize JSON fields to strings for SQLite compatibility
-        const toJsonString = (val: unknown) =>
-          val ? JSON.stringify(val) : null;
+        // Store structured fields as native PostgreSQL JSON
+        const toJson = (val: unknown): InputJsonValue | undefined =>
+          val !== null && val !== undefined
+            ? (val as InputJsonValue)
+            : undefined;
         await db.analysisReport.create({
           data: {
             clerkUserId: user!.clerkId,
@@ -346,26 +350,20 @@ export async function POST(request: NextRequest) {
             clinvarClassification: body.clinvar_classification || null,
             variationType: body.variation_type || null,
             clinvarId: body.clinvar_id || null,
-            populationFrequency: toJsonString(
-              analysisResult.population_frequency,
-            ),
-            acmgEvidence: toJsonString(analysisResult.acmg_evidence),
-            literatureContext: toJsonString(analysisResult.literature_context),
+            populationFrequency: toJson(analysisResult.population_frequency),
+            acmgEvidence: toJson(analysisResult.acmg_evidence),
+            literatureContext: toJson(analysisResult.literature_context),
             clinicalSummary: analysisResult.clinical_summary ?? null,
-            evidenceConfidence: toJsonString(
-              analysisResult.evidence_confidence,
-            ),
-            ismScanData: toJsonString(analysisResult.ism_scan),
-            xaiFactors: toJsonString(analysisResult.xai_factors),
-            counterfactuals: toJsonString(analysisResult.counterfactuals),
-            acmgCriteria: toJsonString(analysisResult.acmg_criteria),
-            knowledgeGraph: toJsonString(analysisResult.knowledge_graph),
-            externalScores: toJsonString(analysisResult.external_scores),
-            acmgCriteriaRefined: toJsonString(
-              analysisResult.acmg_criteria_refined,
-            ),
+            evidenceConfidence: toJson(analysisResult.evidence_confidence),
+            ismScanData: toJson(analysisResult.ism_scan),
+            xaiFactors: toJson(analysisResult.xai_factors),
+            counterfactuals: toJson(analysisResult.counterfactuals),
+            acmgCriteria: toJson(analysisResult.acmg_criteria),
+            knowledgeGraph: toJson(analysisResult.knowledge_graph),
+            externalScores: toJson(analysisResult.external_scores),
+            acmgCriteriaRefined: toJson(analysisResult.acmg_criteria_refined),
             analysisSource: body.analysis_source || null,
-            vepAnnotation: toJsonString(vepAnnotation),
+            vepAnnotation: toJson(vepAnnotation),
           },
         });
         console.log("[DATABASE] Analysis saved successfully");
