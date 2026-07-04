@@ -4,7 +4,7 @@
 >
 > GitHub: [https://github.com/soham-kar/cancer-detection_evo2](https://github.com/soham-kar/cancer-detection_evo2)
 >
-> Built by Soham Kar · Last updated: 2026-06-29
+> Built by Soham Kar · Last updated: 2026-07-04
 
 ---
 
@@ -28,6 +28,10 @@
 16. [API Shape & Contracts](#16-api-shape--contracts)
 17. [Acceptance Criteria](#17-acceptance-criteria)
 18. [Risks, Constraints & Future Work](#18-risks-constraints--future-work)
+19. [Appendix A: Production Deployment Architecture](#appendix-a-production-deployment-architecture)
+20. [Appendix B: Environment Setup](#appendix-b-environment-setup)
+21. [Appendix C: Glossary](#appendix-c-glossary)
+22. [Appendix D: Floating Chatbot — Finalized Design Plan](#appendix-d-floating-chatbot--finalized-design-plan)
 
 ---
 
@@ -2082,4 +2086,1055 @@ echo '{"gene_symbol":"BRCA1","position":43094169,...}' | python design_assistant
 
 > **Document maintained by Soham Kar**
 > GitHub: [https://github.com/soham-kar/cancer-detection_evo2](https://github.com/soham-kar/cancer-detection_evo2)
-> Last updated: 2026-06-28
+> Last updated: 2026-07-04
+
+---
+
+## Appendix D: Floating Chatbot — Finalized Design Plan
+
+> **Status:** Approved 2026-07-04 · **Phase:** Phase 12 Implementation
+>
+> This appendix documents the finalized design decisions for the global floating
+> chatbot that replaces the embedded `ReportChatBot` component inside the saved
+> report modal. The plan was collaboratively refined through a design discussion
+> and locks in specific choices for layout, mode switching, streaming, session
+> management, suggestions, and component architecture.
+
+---
+
+### D.1 Summary of Finalized Decisions
+
+| # | Decision | Choice | Rationale |
+|---|----------|--------|-----------|
+| 1 | Layout | **Push panel** (flexbox, main content shrinks) | Users see both report and chat simultaneously, like VS Code + Copilot panel |
+| 2 | UI Library | **shadcn/ui** components | Professional, clinical-grade aesthetic; not a "child project" look |
+| 3 | Availability | **Always available** (any page, any time) | Layman users can ask general genomics questions; professionals get report-specific help |
+| 4 | Streaming | **SSE streaming with chain-of-thought** | Tokens appear in real-time; Nemotron's `reasoning_content` shown in collapsible thinking block |
+| 5 | Session Management | **Hybrid** (general session + per-report sessions) | General Q&A doesn't need session management; report-specific conversations benefit from separation |
+| 6 | Suggestions | **Dynamic, context-aware** | General mode shows layman-friendly questions; report mode shows report-specific questions for both layman and professional |
+| 7 | Design Therapeutics Tab | **Stays as-is** in saved report modal | Complementary to chatbot; will revisit after full chatbot development |
+
+---
+
+### D.2 Layout — Push Panel with shadcn/ui
+
+#### D.2.1 Closed State
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  HelixMind                                                   │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │  Main Content (flex-1)                               │   │
+│  │  Gene search, variants, report modal, etc.           │   │
+│  └──────────────────────────────────────────────────────┘   │
+│                                          ┌──────┐            │
+│                                          │ 💬   │ ← floating │
+│                                          └──────┘   button   │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### D.2.2 Open State — Two Vertical Columns
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  HelixMind                                                   │
+│  ┌──────────────────────────────┐  ┌────────────────────┐   │
+│  │  Main Content                │  │  HelixDesign Chat  │   │
+│  │  (flex-1, shrinks)          │  │  (w-[400px])       │   │
+│  │                              │  │                    │   │
+│  │  Gene search, variants,     │  │  shadcn ScrollArea │   │
+│  │  report modal, etc.         │  │  shadcn Input      │   │
+│  │                              │  │  shadcn Button     │   │
+│  │                              │  │  shadcn Badge      │   │
+│  │                              │  │  shadcn Separator  │   │
+│  └──────────────────────────────┘  └────────────────────┘   │
+│                                          ┌──────┐            │
+│                                          │ 💬   │            │
+│                                          └──────┘            │
+└──────────────────────────────────────────────────────────────┘
+```
+
+#### D.2.3 CSS Layout
+
+```css
+.app-shell {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.main-column {
+  flex: 1;
+  min-width: 0;        /* allows shrinking */
+  overflow: auto;
+  transition: flex 0.3s ease;
+}
+
+.chat-column {
+  width: 400px;
+  flex-shrink: 0;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  display: flex;
+  flex-direction: column;
+}
+```
+
+```jsx
+<div className="app-shell">
+  <main className="main-column">{children}</main>
+  {chatOpen && (
+    <aside className="chat-column">
+      <ChatSidePanel />
+    </aside>
+  )}
+  <ChatFloatingButton />
+</div>
+```
+
+#### D.2.4 shadcn/ui Components Used
+
+| Component | Usage |
+|-----------|-------|
+| `ScrollArea` | Message list scrolling |
+| `Input` | Chat text input |
+| `Button` | Send button, floating button, new chat |
+| `Badge` | Model name badge, mode indicator |
+| `Separator` | Between header, messages, and input |
+| `Tooltip` | Floating button hover hint |
+| `Avatar` | User and assistant message icons |
+| `Skeleton` | Loading states |
+| `Collapsible` | Chain-of-thought thinking block |
+| `Select` | Session dropdown selector |
+| `Card` | Message bubbles |
+
+---
+
+### D.3 Dual-Mode Operation
+
+The chatbot operates in two modes depending on whether a report is active.
+
+#### D.3.1 General Mode (No Report Open)
+
+| Aspect | Value |
+|--------|-------|
+| **When** | No saved report modal open; user is browsing genes, variants, or homepage |
+| **System Prompt** | `"You are HelixDesign, a genomics assistant. Help users understand genetic concepts, terminology, variant types, tools like Evo2, gnomAD, ClinVar, ACMG criteria, etc. Explain in plain language for non-experts while also being technically accurate for professionals."` |
+| **Session** | Single "general" session per user (no session dropdown shown) |
+| **Suggestions** | Layman-friendly general genomics questions |
+
+**General Mode Suggestions:**
+```
+"What is a single nucleotide variant?"
+"What does pathogenic vs benign mean?"
+"How does Evo2 predict variant impact?"
+"What are ACMG criteria?"
+"What is gnomAD and why does it matter?"
+```
+
+#### D.3.2 Report Mode (Report Open)
+
+| Aspect | Value |
+|--------|-------|
+| **When** | User opens a saved report from the analysis history |
+| **System Prompt** | Full report context via `buildSystemPrompt()` — VEP, Evo2, gnomAD, ClinVar, UniProt, PubMed, ACMG, AlphaMissense, CADD, REVEL, ISM, XAI, counterfactuals, knowledge graph |
+| **Session** | Sessions tied to `analysisReportId`; session dropdown appears for switching |
+| **Suggestions** | Dynamic, based on report content (see D.6) |
+
+#### D.3.3 Mode Switching
+
+```
+User opens report modal
+        │
+        ▼
+ActiveVariantProvider updates context
+        │
+        ▼
+ChatSidePanel detects report is active
+        │
+        ├─ Switches to Report Mode
+        ├─ Loads report-specific sessions
+        ├─ Updates system prompt
+        └─ Updates suggestions
+
+User closes report modal
+        │
+        ▼
+ActiveVariantProvider clears context
+        │
+        ▼
+ChatSidePanel switches to General Mode
+        ├─ Loads general session
+        ├─ Updates system prompt
+        └─ Updates suggestions
+```
+
+---
+
+### D.4 SSE Streaming with Chain-of-Thought
+
+#### D.4.1 Visual Design
+
+```
+┌────────────────────────────────────┐
+│  🧠 Thinking...                    │
+│  ┌──────────────────────────────┐  │
+│  │ Let me analyze this BRCA1   │  │  ← Collapsible, streams live
+│  │ variant at position 43M...  │  │
+│  │ The Evo2 delta score is     │  │
+│  │ -0.000258, which suggests..│  │
+│  └──────────────────────────────┘  │
+│  [▾ Collapse]                      │
+│                                    │
+│  💬 Answer                         │
+│  ┌──────────────────────────────┐  │
+│  │ This BRCA1 variant shows     │  │  ← Streams token-by-token
+│  │ weak evolutionary constraint │  │
+│  │ with a delta score of...     │  │
+│  └──────────────────────────────┘  │
+└────────────────────────────────────┘
+```
+
+#### D.4.2 SSE Event Protocol
+
+**Request:** `POST /api/chat`
+
+```json
+{
+  "reportId": "cmr6j5bie0001mwup66q4jq6f",
+  "message": "Explain the Evo2 prediction",
+  "sessionId": "sess_xyz789",
+  "mode": "report"
+}
+```
+
+**Response:** `Content-Type: text/event-stream`
+
+| Event | Payload | When |
+|-------|---------|------|
+| `thinking` | `{token, messageId}` | Nemotron `reasoning_content` token streamed |
+| `thinking_done` | `{messageId, fullThinking}` | CoT complete, auto-collapse thinking block |
+| `answer` | `{token, messageId}` | Nemotron `content` token streamed |
+| `done` | `{messageId, sessionId, fullAnswer}` | Response complete, persist to database |
+| `error` | `{messageId, error}` | Error occurred |
+
+**Example SSE stream:**
+
+```
+event: thinking
+data: {"token": "Let", "messageId": "msg_abc123"}
+
+event: thinking
+data: {"token": " me", "messageId": "msg_abc123"}
+
+event: thinking
+data: {"token": " analyze", "messageId": "msg_abc123"}
+
+...
+
+event: thinking_done
+data: {"messageId": "msg_abc123", "fullThinking": "Let me analyze this BRCA1 variant..."}
+
+event: answer
+data: {"token": "This", "messageId": "msg_abc123"}
+
+event: answer
+data: {"token": " BRCA1", "messageId": "msg_abc123"}
+
+...
+
+event: done
+data: {"messageId": "msg_abc123", "sessionId": "sess_xyz789", "fullAnswer": "This BRCA1 variant..."}
+```
+
+#### D.4.3 NVIDIA API Streaming Configuration
+
+```typescript
+const nvidiaResponse = await fetch(NVIDIA_API_URL, {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${NVIDIA_API_KEY}`,
+  },
+  body: JSON.stringify({
+    model: MODEL,
+    messages,
+    temperature: 0.3,
+    top_p: 0.9,
+    max_tokens: 1024,
+    stream: true,  // ← Enable streaming
+  }),
+  signal: AbortSignal.timeout(180_000),
+});
+```
+
+The NVIDIA API returns SSE chunks with `choices[0].delta.reasoning_content` (chain-of-thought) and `choices[0].delta.content` (answer). The Next.js route parses these and forwards as SSE events to the frontend.
+
+#### D.4.4 Next.js SSE Route Implementation Pattern
+
+```typescript
+export async function POST(request: NextRequest) {
+  // ... auth, load report, build messages ...
+
+  const nvidiaResponse = await fetch(NVIDIA_API_URL, { /* streaming config */ });
+
+  const stream = new ReadableStream({
+    async start(controller) {
+      const encoder = new TextEncoder();
+      const reader = nvidiaResponse.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let fullThinking = "";
+      let fullAnswer = "";
+      const messageId = `msg_${Date.now()}`;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const data = line.slice(6);
+          if (data === "[DONE]") continue;
+
+          const chunk = JSON.parse(data);
+          const delta = chunk.choices?.[0]?.delta;
+
+          if (delta?.reasoning_content) {
+            fullThinking += delta.reasoning_content;
+            controller.enqueue(encoder.encode(
+              `event: thinking\ndata: ${JSON.stringify({ token: delta.reasoning_content, messageId })}\n\n`
+            ));
+          }
+
+          if (delta?.content) {
+            fullAnswer += delta.content;
+            controller.enqueue(encoder.encode(
+              `event: answer\ndata: ${JSON.stringify({ token: delta.content, messageId })}\n\n`
+            ));
+          }
+        }
+      }
+
+      // Send thinking_done
+      controller.enqueue(encoder.encode(
+        `event: thinking_done\ndata: ${JSON.stringify({ messageId, fullThinking })}\n\n`
+      ));
+
+      // Persist to database
+      await db.chatMessage.create({ /* ... */ });
+
+      // Send done
+      controller.enqueue(encoder.encode(
+        `event: done\ndata: ${JSON.stringify({ messageId, sessionId, fullAnswer })}\n\n`
+      ));
+
+      controller.close();
+    },
+  });
+
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream",
+      "Cache-Control": "no-cache",
+      Connection: "keep-alive",
+    },
+  });
+}
+```
+
+#### D.4.5 Frontend Stream Consumer
+
+```typescript
+// use-chat-stream.ts hook
+async function streamChat(message: string) {
+  const response = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reportId, message, sessionId, mode }),
+  });
+
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n\n");
+    buffer = lines.pop() || "";
+
+    for (const line of lines) {
+      const eventMatch = line.match(/^event: (.+)$/m);
+      const dataMatch = line.match(/^data: (.+)$/m);
+      if (!eventMatch || !dataMatch) continue;
+
+      const eventType = eventMatch[1];
+      const data = JSON.parse(dataMatch[1]);
+
+      switch (eventType) {
+        case "thinking":
+          setThinkingText(prev => prev + data.token);
+          break;
+        case "thinking_done":
+          setThinkingDone(true);
+          break;
+        case "answer":
+          setAnswerText(prev => prev + data.token);
+          break;
+        case "done":
+          setSessionId(data.sessionId);
+          setIsLoading(false);
+          break;
+        case "error":
+          setError(data.error);
+          setIsLoading(false);
+          break;
+      }
+    }
+  }
+}
+```
+
+---
+
+### D.5 Session Management — Hybrid Approach
+
+#### D.5.1 General Mode Sessions
+
+- Single "general" session per user
+- All general questions go into one running conversation
+- No session dropdown shown in the header
+- Session is auto-created on first general message
+- Session title: "General Q&A"
+
+#### D.5.2 Report Mode Sessions
+
+- Sessions tied to `analysisReportId` in the database
+- Session dropdown appears in the chat header
+- User can start "New Chat" for a different angle on the same report
+- Switching reports auto-loads the new report's sessions
+- Session title auto-generated: `"Chat about BRCA1 C>T"`
+
+#### D.5.3 Session UI
+
+```
+General Mode:                    Report Mode:
+┌──────────────┐                ┌──────────────┐
+│ No dropdown  │                │ Session:     │
+│ Just chat    │                │ [Evo2 Q&A ▼] │
+│              │                │              │
+│ User: What   │                │ User: Explain│
+│ is a VUS?    │                │ the Evo2...  │
+│ Bot: A VUS   │                │ Bot: ...     │
+│ is...        │                │              │
+└──────────────┘                └──────────────┘
+```
+
+#### D.5.4 Database Schema (Already Exists)
+
+```prisma
+model ChatSession {
+  id              String   @id @default(cuid())
+  clerkUserId     String
+  analysisReportId String?  // null for general sessions
+  title           String
+  updatedAt       DateTime @updatedAt
+  messages        ChatMessage[]
+  // ...
+}
+
+model ChatMessage {
+  id            String   @id @default(cuid())
+  sessionId     String
+  role          String   // 'user' | 'assistant' | 'system'
+  content       String   @db.Text
+  thinking      String?  @db.Text  // NEW: chain-of-thought
+  metadata      Json?    // latency, model, tokens
+  createdAt     DateTime @default(now())
+  // ...
+}
+```
+
+> **Note:** The `thinking` field needs to be added to the ChatMessage schema
+> to store the chain-of-thought alongside the answer.
+
+---
+
+### D.6 Dynamic Suggestions
+
+#### D.6.1 General Mode Suggestions (No Report)
+
+For layman users browsing the platform without a report open:
+
+```typescript
+const GENERAL_SUGGESTIONS = [
+  "What is a single nucleotide variant?",
+  "What does pathogenic vs benign mean?",
+  "How does Evo2 predict variant impact?",
+  "What are ACMG criteria?",
+  "What is gnomAD and why does it matter?",
+];
+```
+
+#### D.6.2 Report Mode Suggestions (Report Open)
+
+Dynamic, based on the active report's content. Includes both layman-friendly
+and professional-level questions:
+
+```typescript
+function getReportSuggestions(report: SavedReport): string[] {
+  const suggestions: string[] = [];
+
+  // ── Layman-friendly (always include) ──
+  if (report.prediction?.toLowerCase().includes("uncertain")) {
+    suggestions.push("Why is this variant classified as VUS?");
+  }
+  if (report.prediction?.toLowerCase().includes("pathogenic")) {
+    suggestions.push("What makes this variant pathogenic?");
+  }
+  if (report.prediction?.toLowerCase().includes("benign")) {
+    suggestions.push("Why is this variant considered benign?");
+  }
+
+  // Explain the VEP consequence in plain terms
+  if (report.vepAnnotation?.consequence) {
+    suggestions.push(
+      `What does "${report.vepAnnotation.consequence}" mean?`
+    );
+  }
+
+  // ── Professional-level (context-dependent) ──
+  if (report.externalScores?.alphamissense) {
+    suggestions.push("How does AlphaMissense compare to Evo2?");
+  }
+  if (report.externalScores?.cadd) {
+    suggestions.push("What is the CADD score interpretation?");
+  }
+  if (report.knowledgeGraph?.drugs?.length > 0) {
+    suggestions.push("What therapeutic options exist for this variant?");
+  }
+  if (report.acmgCriteria?.criteria) {
+    suggestions.push("Which ACMG criteria are met?");
+  }
+  if (report.ismScanData) {
+    suggestions.push("What does the ISM scan reveal?");
+  }
+  if (report.counterfactuals) {
+    suggestions.push("What alternative alleles are tolerated?");
+  }
+
+  // ── Always include one general explainer ──
+  suggestions.push("Explain the Evo2 prediction in simple terms");
+
+  return suggestions.slice(0, 6);
+}
+```
+
+#### D.6.3 Suggestion Chip UI
+
+- Rendered as shadcn `Button` variants with `outline` style
+- Disappear after the first user message
+- Reappear when mode switches (general → report or vice versa)
+- Clickable: fills the input and auto-sends
+
+---
+
+### D.7 Component Architecture
+
+#### D.7.1 File Structure
+
+```
+frontend/src/
+├── app/
+│   ├── layout.tsx                        ← MODIFY: add ActiveVariantProvider + ChatLayer
+│   └── api/chat/
+│       └── route.ts                      ← MODIFY: SSE streaming + dual mode
+├── contexts/
+│   └── active-variant.tsx                ← NEW: tracks active report/variant
+├── hooks/
+│   └── use-chat-stream.ts                ← NEW: SSE stream consumer hook
+├── components/
+│   ├── chat/                             ← NEW directory
+│   │   ├── chat-floating-button.tsx      ← 💬 circular shadcn button
+│   │   ├── chat-side-panel.tsx           ← Right panel container
+│   │   ├── chat-header.tsx               ← Title + mode badge + session dropdown
+│   │   ├── chat-message-list.tsx         ← ScrollArea with messages
+│   │   ├── chat-message.tsx              ← Individual message (user/assistant)
+│   │   ├── chat-thinking-block.tsx       ← Collapsible CoT (streamed)
+│   │   ├── chat-suggestions.tsx          ← Dynamic suggestion chips
+│   │   └── chat-input.tsx                ← Input + send button
+│   ├── saved-report-modal.tsx            ← MODIFY: remove ReportChatBot
+│   └── report-chat-bot.tsx               ← DELETE (replaced by chat/ directory)
+```
+
+#### D.7.2 Component Tree
+
+```
+layout.tsx
+│
+├─ ActiveVariantProvider (React Context)
+│   └─ tracks: { reportId, geneSymbol, variantLabel, reportData } | null
+│
+├─ MainContent (children)
+│   └─ all existing pages and components
+│       └─ saved-report-modal.tsx
+│           └─ onOpen: setActiveVariant(report)
+│           └─ onClose: clearActiveVariant()
+│
+└─ ChatLayer (sibling to MainContent)
+    ├─ ChatFloatingButton (bottom-right, always visible)
+    │   └─ onClick: toggle chatOpen
+    │
+    └─ ChatSidePanel (when chatOpen === true)
+        ├─ ChatHeader
+        │   ├─ Title: "HelixDesign Chat"
+        │   ├─ Mode Badge: "General" or "Report: BRCA1 C>T"
+        │   ├─ Session Select (only in Report Mode)
+        │   └─ New Chat Button
+        │
+        ├─ ChatSuggestions (disappear after first message)
+        │   └─ dynamic based on mode
+        │
+        ├─ ChatMessageList (ScrollArea)
+        │   └─ ChatMessage (per message)
+        │       ├─ UserMessage (right-aligned, emerald bubble)
+        │       └─ AssistantMessage (left-aligned, slate bubble)
+        │           ├─ ChatThinkingBlock (collapsible, streamed)
+        │           └─ AnswerBlock (streamed)
+        │
+        └─ ChatInput
+            ├─ Input (shadcn, disabled during streaming)
+            └─ Send Button (shadcn, disabled during streaming)
+```
+
+#### D.7.3 ActiveVariantProvider Context
+
+```typescript
+// frontend/src/contexts/active-variant.tsx
+
+interface ActiveVariantContextValue {
+  reportId: string | null;
+  geneSymbol: string | null;
+  variantLabel: string | null;
+  reportData: SavedReport | null;
+  setActiveVariant: (report: SavedReport) => void;
+  clearActiveVariant: () => void;
+}
+
+const ActiveVariantContext = createContext<ActiveVariantContextValue | null>(null);
+
+export function ActiveVariantProvider({ children }: { children: React.ReactNode }) {
+  const [activeVariant, setActiveVariant] = useState<ActiveVariantContextValue>({
+    reportId: null,
+    geneSymbol: null,
+    variantLabel: null,
+    reportData: null,
+    setActiveVariant: (report) => {
+      setActiveVariantState({
+        reportId: report.id,
+        geneSymbol: report.geneSymbol,
+        variantLabel: `${report.reference}>${report.alternative}`,
+        reportData: report,
+        setActiveVariant: /* ... */,
+        clearActiveVariant: /* ... */,
+      });
+    },
+    clearActiveVariant: () => {
+      setActiveVariantState({
+        reportId: null,
+        geneSymbol: null,
+        variantLabel: null,
+        reportData: null,
+        setActiveVariant: /* ... */,
+        clearActiveVariant: /* ... */,
+      });
+    },
+  });
+
+  return (
+    <ActiveVariantContext.Provider value={activeVariant}>
+      {children}
+    </ActiveVariantContext.Provider>
+  );
+}
+
+export function useActiveVariant() {
+  const ctx = useContext(ActiveVariantContext);
+  if (!ctx) throw new Error("useActiveVariant must be used within ActiveVariantProvider");
+  return ctx;
+}
+```
+
+#### D.7.4 ChatFloatingButton
+
+```typescript
+// frontend/src/components/chat/chat-floating-button.tsx
+
+"use client";
+
+import { Button } from "~/components/ui/button";
+import { MessageCircle, X } from "lucide-react";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "~/components/ui/tooltip";
+
+interface ChatFloatingButtonProps {
+  chatOpen: boolean;
+  onToggle: () => void;
+}
+
+export function ChatFloatingButton({ chatOpen, onToggle }: ChatFloatingButtonProps) {
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            onClick={onToggle}
+            className="fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-lg"
+            size="icon"
+            variant={chatOpen ? "outline" : "default"}
+          >
+            {chatOpen ? <X className="h-6 w-6" /> : <MessageCircle className="h-6 w-6" />}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="left">
+          {chatOpen ? "Close chat" : "Ask HelixDesign"}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+```
+
+#### D.7.5 ChatSidePanel
+
+```typescript
+// frontend/src/components/chat/chat-side-panel.tsx
+
+"use client";
+
+import { useState, useRef, useEffect } from "react";
+import { Separator } from "~/components/ui/separator";
+import { Badge } from "~/components/ui/badge";
+import { ScrollArea } from "~/components/ui/scroll-area";
+import { ChatHeader } from "./chat-header";
+import { ChatSuggestions } from "./chat-suggestions";
+import { ChatMessageList } from "./chat-message-list";
+import { ChatInput } from "./chat-input";
+import { useActiveVariant } from "~/contexts/active-variant";
+import { useChatStream } from "~/hooks/use-chat-stream";
+
+export function ChatSidePanel() {
+  const { reportId, geneSymbol, variantLabel, reportData } = useActiveVariant();
+  const mode = reportId ? "report" : "general";
+  const { messages, thinking, isStreaming, sendMessage, sessions, activeSessionId, loadSession, startNewChat } = useChatStream({
+    reportId,
+    mode,
+  });
+
+  return (
+    <div className="flex h-full flex-col bg-background">
+      <ChatHeader
+        mode={mode}
+        geneSymbol={geneSymbol}
+        variantLabel={variantLabel}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSessionChange={loadSession}
+        onNewChat={startNewChat}
+      />
+      <Separator />
+      {messages.length === 0 && (
+        <ChatSuggestions mode={mode} report={reportData} onSelect={sendMessage} />
+      )}
+      <ChatMessageList messages={messages} thinking={thinking} isStreaming={isStreaming} />
+      <Separator />
+      <ChatInput onSend={sendMessage} disabled={isStreaming} />
+    </div>
+  );
+}
+```
+
+#### D.7.6 ChatThinkingBlock
+
+```typescript
+// frontend/src/components/chat/chat-thinking-block.tsx
+
+"use client";
+
+import { useState } from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "~/components/ui/collapsible";
+import { Brain, ChevronDown, ChevronUp } from "lucide-react";
+
+interface ChatThinkingBlockProps {
+  thinking: string;
+  isComplete: boolean;
+}
+
+export function ChatThinkingBlock({ thinking, isComplete }: ChatThinkingBlockProps) {
+  const [isOpen, setIsOpen] = useState(!isComplete);
+
+  return (
+    <Collapsible open={isOpen} onOpenChange={setIsOpen}>
+      <CollapsibleTrigger className="flex items-center gap-2 text-xs text-muted-foreground hover:text-foreground">
+        <Brain className="h-3.5 w-3.5" />
+        <span>{isComplete ? "Thinking (completed)" : "Thinking..."}</span>
+        {isOpen ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+      </CollapsibleTrigger>
+      <CollapsibleContent>
+        <div className="mt-2 rounded-md bg-muted/50 p-3 text-xs text-muted-foreground whitespace-pre-wrap">
+          {thinking}
+          {!isComplete && <span className="animate-pulse">▋</span>}
+        </div>
+      </CollapsibleContent>
+    </Collapsible>
+  );
+}
+```
+
+---
+
+### D.8 API Route Changes
+
+#### D.8.1 Current State (Non-Streaming)
+
+The current `/api/chat` route:
+- Accepts `{ reportId, message, sessionId }`
+- Calls NVIDIA API with `stream: false`
+- Waits for full response (~20–110 seconds)
+- Returns JSON `{ sessionId, message, tokens, latency_ms }`
+
+#### D.8.2 New State (SSE Streaming + Dual Mode)
+
+The modified `/api/chat` route:
+- Accepts `{ reportId, message, sessionId, mode }`
+  - `mode: "report"` → uses `buildSystemPrompt(report)` (full report context)
+  - `mode: "general"` → uses general genomics system prompt (no report)
+- Calls NVIDIA API with `stream: true`
+- Returns `text/event-stream` with thinking/answer/done events
+- Persists messages to database after streaming completes
+
+#### D.8.3 General Mode System Prompt
+
+```typescript
+const GENERAL_SYSTEM_PROMPT = `You are HelixDesign, an expert genomics assistant.
+Help users understand genetic concepts, terminology, variant types, and tools.
+
+## Your Knowledge Areas
+- Genomic variants: SNV, indel, CNV, structural variants
+- Pathogenicity prediction: Evo2, AlphaMissense, CADD, REVEL
+- Clinical databases: ClinVar, gnomAD, UniProt, PubMed
+- ACMG/AMP variant classification criteria
+- VEP molecular consequences (missense, frameshift, splice, etc.)
+- Population genetics and allele frequencies
+- Protein structure and function
+- Therapeutic strategies for genetic variants
+
+## Guidelines
+1. Explain concepts in plain language — assume the user may be a layman or a professional.
+2. For technical terms, provide both a simple explanation and the technical detail.
+3. Be concise but thorough. Use bullet points for clarity.
+4. If asked about a specific variant, explain that they need to analyze it first using the variant analysis tool.
+5. Always include a disclaimer for clinical topics: "This is educational information. Clinical decisions require professional genetic counseling."`;
+```
+
+#### D.8.4 Report Mode System Prompt
+
+Uses the existing `buildSystemPrompt(report)` function which injects:
+- Basic variant info (gene, position, alleles)
+- Evo2 prediction (delta score, confidence)
+- VEP molecular consequence
+- gnomAD population frequency
+- ClinVar classification
+- ACMG evidence and criteria
+- PubMed literature context
+- Evidence confidence levels
+- External scores (AlphaMissense, CADD, REVEL)
+- Multi-tool concordance
+- Clinical summary (multi-modal RAG)
+- XAI confidence factors
+- Counterfactual analysis
+- Knowledge graph (gene-disease-drug)
+- ISM scan data
+
+---
+
+### D.9 Integration Points
+
+#### D.9.1 layout.tsx Changes
+
+```typescript
+// frontend/src/app/layout.tsx
+
+import { ActiveVariantProvider } from "~/contexts/active-variant";
+import { ChatFloatingButton } from "~/components/chat/chat-floating-button";
+import { ChatSidePanel } from "~/components/chat/chat-side-panel";
+import { useState } from "react";
+
+export default function RootLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <html lang="en">
+      <body>
+        <ActiveVariantProvider>
+          <div className="app-shell flex h-screen overflow-hidden">
+            <main className="main-column flex-1 overflow-auto">
+              {children}
+            </main>
+            <ChatLayer />
+          </div>
+        </ActiveVariantProvider>
+      </body>
+    </html>
+  );
+}
+
+function ChatLayer() {
+  const [chatOpen, setChatOpen] = useState(false);
+  return (
+    <>
+      {chatOpen && (
+        <aside className="chat-column w-[400px] flex-shrink-0 border-l">
+          <ChatSidePanel />
+        </aside>
+      )}
+      <ChatFloatingButton chatOpen={chatOpen} onToggle={() => setChatOpen(!chatOpen)} />
+    </>
+  );
+}
+```
+
+#### D.9.2 saved-report-modal.tsx Changes
+
+Remove the embedded `ReportChatBot` and instead update the `ActiveVariantProvider`:
+
+```typescript
+// BEFORE (in saved-report-modal.tsx):
+import { ReportChatBot } from "./report-chat-bot";
+// ...
+<ReportChatBot reportId={report.id} geneSymbol={report.geneSymbol} variantLabel={...} />
+
+// AFTER:
+import { useActiveVariant } from "~/contexts/active-variant";
+// ...
+const { setActiveVariant, clearActiveVariant } = useActiveVariant();
+
+useEffect(() => {
+  if (report) {
+    setActiveVariant(report);
+  }
+  return () => clearActiveVariant();
+}, [report]);
+```
+
+#### D.9.3 Prisma Schema Addition
+
+Add `thinking` field to `ChatMessage`:
+
+```prisma
+model ChatMessage {
+  id            String   @id @default(cuid())
+  sessionId     String
+  role          String   // 'user' | 'assistant' | 'system'
+  content       String   @db.Text
+  thinking      String?  @db.Text  // NEW: chain-of-thought from Nemotron
+  toolCalls     Json?
+  toolResults   Json?
+  metadata      Json?
+  createdAt     DateTime @default(now())
+
+  session ChatSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+  @@index([createdAt])
+  @@map("chat_messages")
+}
+```
+
+---
+
+### D.10 Implementation Order
+
+| Step | What | Est. Time | Dependencies |
+|------|------|-----------|--------------|
+| 1 | Add `thinking` field to Prisma schema + migrate | 15 min | None |
+| 2 | Create `ActiveVariantProvider` context | 45 min | None |
+| 3 | Create `use-chat-stream.ts` hook | 1.5 hours | None |
+| 4 | Create `chat-floating-button.tsx` | 30 min | shadcn installed |
+| 5 | Create `chat-header.tsx` | 1 hour | Step 2 |
+| 6 | Create `chat-suggestions.tsx` with dynamic logic | 1 hour | Step 2 |
+| 7 | Create `chat-thinking-block.tsx` | 45 min | shadcn Collapsible |
+| 8 | Create `chat-message.tsx` + `chat-message-list.tsx` | 1.5 hours | Steps 5, 7 |
+| 9 | Create `chat-input.tsx` | 30 min | shadcn Input |
+| 10 | Create `chat-side-panel.tsx` (assembles 5–9) | 1 hour | Steps 4–9 |
+| 11 | Modify `/api/chat` route for SSE streaming + dual mode | 2 hours | Step 1 |
+| 12 | Integrate into `layout.tsx` | 1 hour | Steps 2, 4, 10 |
+| 13 | Modify `saved-report-modal.tsx` to use context | 30 min | Step 2 |
+| 14 | Remove `ReportChatBot` from `saved-report-modal.tsx` | 15 min | Step 13 |
+| 15 | Delete or archive `report-chat-bot.tsx` | 5 min | Step 14 |
+| 16 | Test general mode (no report) | 30 min | Steps 11–14 |
+| 17 | Test report mode (with report open) | 30 min | Steps 11–14 |
+| 18 | Test streaming + chain-of-thought display | 30 min | Step 11 |
+| 19 | Test session switching | 30 min | Steps 11, 13 |
+| 20 | Polish: animations, transitions, responsive | 1 hour | All |
+| **Total** | | **~14 hours** | |
+
+---
+
+### D.11 What Stays the Same
+
+| Component | Status |
+|-----------|--------|
+| `/api/chat` route | Modified (SSE + dual mode) but same endpoint |
+| Prisma `ChatSession` model | Unchanged |
+| Prisma `ChatMessage` model | Add `thinking` field only |
+| `buildSystemPrompt()` function | Reused for Report Mode |
+| NVIDIA API endpoint (`integrate.api.nvidia.com`) | Unchanged |
+| NVIDIA model (`nvidia/nemotron-3-ultra-550b-a55b`) | Unchanged |
+| User isolation via `clerkUserId` | Unchanged |
+| Database persistence of conversations | Unchanged |
+| Design Therapeutics tab in saved report modal | Unchanged (stays as-is) |
+
+---
+
+### D.12 Acceptance Criteria for Phase 12
+
+- [ ] Floating 💬 button visible at bottom-right on all pages
+- [ ] Clicking button opens right-side panel (push layout, not overlay)
+- [ ] Panel shows "HelixDesign Chat" header with mode badge
+- [ ] General Mode: no session dropdown, general genomics system prompt
+- [ ] Report Mode: session dropdown, full report context system prompt
+- [ ] Mode switches automatically when report modal opens/closes
+- [ ] Dynamic suggestions shown before first message
+- [ ] General suggestions: layman-friendly genomics questions
+- [ ] Report suggestions: tailored to report content (VEP, Evo2, ACMG, etc.)
+- [ ] SSE streaming: tokens appear in real-time
+- [ ] Chain-of-thought shown in collapsible "Thinking..." block
+- [ ] Thinking block auto-collapses when answer starts streaming
+- [ ] Messages persist to database per user per session
+- [ ] Session switching works in Report Mode
+- [ ] "New Chat" button creates fresh session
+- [ ] Input disabled during streaming
+- [ ] Error handling: graceful error display, no crash
+- [ ] shadcn/ui components used throughout for professional appearance
+- [ ] TypeScript compilation passes with no errors
+- [ ] No `loadSessions` unmounted component errors
+
+---
+
+### D.13 Future Enhancements (Post-Phase 12)
+
+| Enhancement | Phase | Description |
+|-------------|-------|-------------|
+| Tool calling (SpliceAI, AlphaFold) | Phase 13 | Nemotron autonomously calls bioinformatics tools |
+| Multi-variant comparison | Phase 14 | Chatbot can compare multiple variants |
+| Clinical trial matching | Phase 15 | Connect therapeutic strategies to ClinicalTrials.gov |
+| Voice input | Phase 16 | Speech-to-text for hands-free interaction |
+| Collaborative chat | Phase 17 | Multiple researchers in same chat session |
+| Export chat transcript | Phase 13 | Download conversation as PDF/Markdown |
+| Chat search | Phase 15 | Search across all past conversations |
+| Prompt templates | Phase 14 | Pre-built analysis prompts for common scenarios |
