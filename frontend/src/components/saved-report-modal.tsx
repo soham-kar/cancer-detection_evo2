@@ -31,6 +31,7 @@ import {
 } from "./multi-model-consensus";
 import { ACMGRefinedCard } from "./acmg-refined-card";
 import { DesignTherapeutics } from "./design-therapeutics";
+import { ReportChatBot } from "./report-chat-bot";
 import type {
   ISMScanResult,
   XAIFactors,
@@ -1165,6 +1166,15 @@ Cross-references:
           {/* ── Design Therapeutics ── */}
           <div className="mt-4">
             <DesignTherapeutics report={report} />
+          </div>
+
+          {/* ── AI Chatbot ── */}
+          <div className="mt-4">
+            <ReportChatBot
+              reportId={report.id}
+              geneSymbol={report.geneSymbol}
+              variantLabel={`${report.reference}>${report.alternative}`}
+            />
           </div>
 
           {/* ── Evidence Consensus Table now lives inside XAI panel above ── */}
