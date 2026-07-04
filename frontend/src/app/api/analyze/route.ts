@@ -23,12 +23,10 @@ import {
   setCooldown,
 } from "~/lib/user-utils";
 import { db } from "~/lib/db";
-type InputJsonValue =
-  | string
-  | number
-  | boolean
-  | { [key: string]: InputJsonValue }
-  | InputJsonValue[];
+import type { InputJsonValue } from "@prisma/client/runtime/client";
+
+// Allow up to 5 minutes for Modal cold start + inference
+export const maxDuration = 300;
 
 // Credit system configuration
 const FREE_LIMIT_PER_DAY = 10; // Maximum free analyses per day
@@ -102,23 +100,73 @@ async function callModalAnalysis(body: AnalysisRequestBody) {
 
   console.log("[MODAL] Calling Modal API:", { url: MODAL_API_URL, body });
 
-  const response = await fetch(MODAL_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  // Modal cold starts can take 60-90 seconds. Use retry with backoff
+  // to handle "Missing request" errors from cold-start timeouts.
+  const MAX_RETRIES = 3;
+  const BASE_DELAY_MS = 2000;
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    console.error("[MODAL] API Error:", errorText);
-    throw new Error(`Modal API failed: ${errorText}`);
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const controller = new AbortController();
+      // 120 second timeout per attempt (Modal cold start + inference)
+      const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
+      const response = await fetch(MODAL_API_URL, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+
+      clearTimeout(timeoutId);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`[MODAL] API Error (attempt ${attempt + 1}/${MAX_RETRIES}):`, errorText);
+
+        // If it's a cold-start expiry, retry
+        if (errorText.includes("expiry") || errorText.includes("cancellation") || errorText.includes("Missing request")) {
+          lastError = new Error(`Modal API cold start (attempt ${attempt + 1}): ${errorText}`);
+          if (attempt < MAX_RETRIES - 1) {
+            const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+            console.log(`[MODAL] Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          }
+        }
+
+        throw new Error(`Modal API failed: ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log("[MODAL] API Response received successfully");
+      return result;
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") {
+        lastError = new Error(`Modal API timeout after 120s (attempt ${attempt + 1})`);
+        console.error(`[MODAL] ${lastError.message}`);
+        if (attempt < MAX_RETRIES - 1) {
+          const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+          console.log(`[MODAL] Retrying in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue;
+        }
+      }
+      lastError = error instanceof Error ? error : new Error(String(error));
+      if (attempt < MAX_RETRIES - 1) {
+        const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+        console.log(`[MODAL] Retrying in ${delay}ms after error:`, lastError.message);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+    }
   }
 
-  const result = await response.json();
-  console.log("[MODAL] API Response:", result);
-  return result;
+  throw lastError || new Error("Modal API failed after all retries");
 }
 
 // =============================================================================
