@@ -33,7 +33,7 @@ export function ChatFloatingButton({
             onClick={onClick}
             size="icon"
             className={cn(
-              "fixed bottom-6 right-6 z-50 h-14 w-14 rounded-full shadow-xl transition-transform hover:scale-105 active:scale-95",
+              "fixed bottom-6 right-6 z-[60] h-14 w-14 rounded-full shadow-xl transition-transform hover:scale-105 active:scale-95",
               isOpen ? "translate-x-[400px]" : "translate-x-0",
               hasActiveVariant
                 ? "bg-[#de8246] hover:bg-[#c97340]"

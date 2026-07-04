@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { ChatFloatingButton } from "./chat-floating-button";
 import { ChatSidePanel } from "./chat-side-panel";
 import { useActiveVariant } from "~/hooks/use-active-variant";
@@ -10,19 +9,19 @@ import { useActiveVariant } from "~/hooks/use-active-variant";
 // =============================================================================
 
 export function ChatLayer() {
-  const [isOpen, setIsOpen] = useState(false);
-  const { activeVariant } = useActiveVariant();
-
-  // Keep panel closed by default. It opens via the floating button.
+  const { activeVariant, isChatPanelOpen, setChatPanelOpen } = useActiveVariant();
 
   return (
     <>
       <ChatFloatingButton
-        isOpen={isOpen}
-        onClick={() => setIsOpen((v) => !v)}
+        isOpen={isChatPanelOpen}
+        onClick={() => setChatPanelOpen(!isChatPanelOpen)}
         hasActiveVariant={!!activeVariant}
       />
-      <ChatSidePanel isOpen={isOpen} onClose={() => setIsOpen(false)} />
+      <ChatSidePanel
+        isOpen={isChatPanelOpen}
+        onClose={() => setChatPanelOpen(false)}
+      />
     </>
   );
 }

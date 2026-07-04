@@ -275,7 +275,7 @@ export function ChatSidePanel({ isOpen, onClose }: ChatSidePanelProps) {
   return (
     <div
       className={cn(
-        "fixed top-0 right-0 z-40 flex h-screen w-[400px] flex-col border-l border-[#3c4f3d]/10 bg-white shadow-2xl transition-transform duration-300 ease-in-out",
+        "fixed top-0 right-0 z-[60] flex h-screen w-[400px] flex-col border-l border-[#3c4f3d]/10 bg-white shadow-2xl transition-transform duration-300 ease-in-out",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
+import { cn } from "~/lib/utils";
 import {
   X,
   ExternalLink,
@@ -254,7 +255,7 @@ export function SavedReportModal({
   const [showXAI, setShowXAI] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const { setActiveVariant, clearActiveVariant } = useActiveVariant();
+  const { setActiveVariant, clearActiveVariant, isChatPanelOpen } = useActiveVariant();
 
   useEffect(() => {
     if (report) {
@@ -652,7 +653,10 @@ Cross-references:
     : `chr${report.chromosome}`;
 
   return (
-    <div className="fixed inset-0 z-50 flex h-screen min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4">
+    <div className={cn(
+      "fixed inset-0 z-50 flex h-screen min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4 transition-all duration-300",
+      isChatPanelOpen && "pr-[420px]",
+    )}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#3c4f3d]/10 p-5">
