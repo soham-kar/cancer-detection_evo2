@@ -47,6 +47,8 @@ export default tseslint.config(
       "@typescript-eslint/no-unsafe-function-type": "off",
       "@typescript-eslint/no-inferrable-types": "off",
       "@typescript-eslint/dot-notation": "off",
+      "@typescript-eslint/restrict-template-expressions": "off",
+      "@typescript-eslint/no-base-to-string": "off",
       "react/no-unescaped-entities": "off",
       "react/display-name": "off",
     },

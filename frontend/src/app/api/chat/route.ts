@@ -19,7 +19,7 @@
 // Powered by NVIDIA Nemotron-3 550B via NVIDIA API.
 // =============================================================================
 
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import { db } from "~/lib/db";
 
@@ -36,14 +36,44 @@ const MODEL = "nvidia/nemotron-3-ultra-550b-a55b";
 // =============================================================================
 
 interface ChatRequestBody {
-  reportId: string;
+  reportId?: string | null;
   message: string;
-  sessionId?: string; // existing session to continue
+  sessionId?: string | null;
+  mode?: "report" | "general";
+}
+
+interface StreamEvent {
+  event: "reasoning_delta" | "content_delta" | "done" | "error";
+  data: Record<string, unknown>;
+}
+
+function encodeEvent(event: StreamEvent): string {
+  return `event: ${event.event}\ndata: ${JSON.stringify(event.data)}\n\n`;
 }
 
 // =============================================================================
 // System Prompt Builder
 // =============================================================================
+
+function buildGeneralSystemPrompt(): string {
+  return `You are HelixMind Chat, an expert AI assistant for clinical variant interpretation and genomic research.
+
+## YOUR CAPABILITIES
+- Explain variant pathogenicity concepts (VUS, pathogenic, benign, likely pathogenic)
+- Interpret scores such as Evo2 delta likelihood, CADD PHRED, REVEL, and AlphaMissense
+- Describe ACMG/AMP criteria and how they are applied
+- Discuss population frequency data (gnomAD) and its clinical significance
+- Summarize how to read a HelixMind variant analysis report
+- Suggest therapeutic investigation strategies for variants
+- Help researchers design follow-up experiments
+
+## GUIDELINES
+1. Answer using established genomics knowledge. Do not fabricate patient-specific facts.
+2. If a question requires a specific variant report, say "Open a variant report and I can analyze it with full context."
+3. Use plain language when explaining complex concepts. Assume the user is a researcher or clinician.
+4. Always include a disclaimer when discussing clinical implications: "This is a computational prediction for research purposes. Clinical decisions require professional genetic counseling."
+5. Be concise but thorough. Use bullet points for clarity when listing multiple items.`;
+}
 
 function buildSystemPrompt(report: Record<string, unknown>): string {
   // Extract all report sections for context
@@ -297,25 +327,30 @@ export async function POST(request: NextRequest) {
     }
 
     const body = (await request.json()) as ChatRequestBody;
-    const { reportId, message, sessionId } = body;
+    const { reportId, message, sessionId, mode = "report" } = body;
 
-    if (!reportId || !message) {
+    if (!message) {
       return NextResponse.json(
-        { error: "reportId and message are required" },
+        { error: "message is required" },
         { status: 400 },
       );
     }
 
-    // --- Load the full report ---
-    const report = await db.analysisReport.findFirst({
-      where: { id: reportId, clerkUserId: user.id },
-    });
+    const isReportMode = mode === "report" && reportId;
 
-    if (!report) {
-      return NextResponse.json(
-        { error: "Report not found or access denied" },
-        { status: 404 },
-      );
+    // --- Load the full report if in report mode ---
+    let report: Awaited<ReturnType<typeof db.analysisReport.findFirst>> = null;
+    if (isReportMode) {
+      report = await db.analysisReport.findFirst({
+        where: { id: reportId!, clerkUserId: user.id },
+      });
+
+      if (!report) {
+        return NextResponse.json(
+          { error: "Report not found or access denied" },
+          { status: 404 },
+        );
+      }
     }
 
     // --- Get or create chat session ---
@@ -334,8 +369,10 @@ export async function POST(request: NextRequest) {
       chatSession = await db.chatSession.create({
         data: {
           clerkUserId: user.id,
-          analysisReportId: reportId,
-          title: `Chat about ${report.geneSymbol} ${report.reference}>${report.alternative}`,
+          analysisReportId: isReportMode ? reportId! : null,
+          title: isReportMode
+            ? `Chat about ${report!.geneSymbol} ${report!.reference}>${report!.alternative}`
+            : "General genomics chat",
         },
       });
     }
@@ -347,21 +384,23 @@ export async function POST(request: NextRequest) {
       take: 20, // last 20 messages for context window
     });
 
-    // --- Build the system prompt with full report context ---
-    const systemPrompt = buildSystemPrompt(report as unknown as Record<string, unknown>);
+    // --- Build the system prompt ---
+    const systemPrompt = isReportMode
+      ? buildSystemPrompt(report as unknown as Record<string, unknown>)
+      : buildGeneralSystemPrompt();
 
     // --- Build messages array for NVIDIA API ---
-    const messages: Array<{ role: string; content: string }> = [
+    const nvidiaMessages: Array<{ role: string; content: string }> = [
       { role: "system", content: systemPrompt },
     ];
 
     // Add previous conversation history
     for (const msg of previousMessages) {
-      messages.push({ role: msg.role, content: msg.content });
+      nvidiaMessages.push({ role: msg.role, content: msg.content });
     }
 
     // Add the new user message
-    messages.push({ role: "user", content: message });
+    nvidiaMessages.push({ role: "user", content: message });
 
     // --- Save user message ---
     await db.chatMessage.create({
@@ -372,12 +411,12 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // --- Call NVIDIA Nemotron API ---
+    // --- Call NVIDIA Nemotron API (streaming) ---
     if (!NVIDIA_API_KEY) {
       throw new Error("NVIDIA_API_KEY is not configured");
     }
 
-    console.log("[Chat] Calling NVIDIA Nemotron API...");
+    console.log("[Chat] Calling NVIDIA Nemotron API (streaming)...");
     const startTime = Date.now();
 
     const nvidiaResponse = await fetch(NVIDIA_API_URL, {
@@ -388,11 +427,11 @@ export async function POST(request: NextRequest) {
       },
       body: JSON.stringify({
         model: MODEL,
-        messages,
+        messages: nvidiaMessages,
         temperature: 0.3,
         top_p: 0.9,
         max_tokens: 1024,
-        stream: false,
+        stream: true,
       }),
       signal: AbortSignal.timeout(180_000),
     });
@@ -403,47 +442,149 @@ export async function POST(request: NextRequest) {
       throw new Error(`NVIDIA API error: ${nvidiaResponse.status}`);
     }
 
-    const nvidiaData = (await nvidiaResponse.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-      usage?: { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number };
-      id?: string;
-    };
-
-    const latency = Date.now() - startTime;
-    const assistantContent = nvidiaData.choices?.[0]?.message?.content || "";
-
-    if (!assistantContent) {
-      console.error("[Chat] Empty response from NVIDIA:", JSON.stringify(nvidiaData));
-      throw new Error("NVIDIA returned an empty response");
+    if (!nvidiaResponse.body) {
+      throw new Error("NVIDIA returned an empty response body");
     }
 
-    console.log(`[Chat] Response received in ${latency}ms (${nvidiaData.usage?.total_tokens || 0} tokens)`);
+    // --- Stream response back to client while accumulating content ---
+    const reader = nvidiaResponse.body.getReader();
+    const decoder = new TextDecoder();
+    let reasoningContent = "";
+    let assistantContent = "";
+    let usage:
+      | { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number }
+      | undefined;
 
-    // --- Save assistant message ---
-    await db.chatMessage.create({
-      data: {
-        sessionId: chatSession.id,
-        role: "assistant",
-        content: assistantContent,
-        metadata: {
-          latency_ms: latency,
-          model: MODEL,
-          tokens: nvidiaData.usage,
-        },
+    const stream = new ReadableStream({
+      async start(controller) {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            const chunk = decoder.decode(value, { stream: true });
+            const lines = chunk.split("\n");
+
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed || !trimmed.startsWith("data:")) continue;
+
+              const dataStr = trimmed.slice(5).trim();
+              if (dataStr === "[DONE]") continue;
+
+              try {
+                const parsed = JSON.parse(dataStr) as {
+                  choices?: Array<{
+                    delta?: {
+                      content?: string;
+                      reasoning_content?: string;
+                    };
+                    finish_reason?: string | null;
+                  }>;
+                  usage?: {
+                    total_tokens?: number;
+                    prompt_tokens?: number;
+                    completion_tokens?: number;
+                  };
+                };
+
+                const delta = parsed.choices?.[0]?.delta;
+                if (delta?.reasoning_content) {
+                  reasoningContent += delta.reasoning_content;
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      encodeEvent({
+                        event: "reasoning_delta",
+                        data: { delta: delta.reasoning_content },
+                      }),
+                    ),
+                  );
+                }
+                if (delta?.content) {
+                  assistantContent += delta.content;
+                  controller.enqueue(
+                    new TextEncoder().encode(
+                      encodeEvent({
+                        event: "content_delta",
+                        data: { delta: delta.content },
+                      }),
+                    ),
+                  );
+                }
+                if (parsed.usage) {
+                  usage = parsed.usage;
+                }
+              } catch {
+                // Ignore malformed SSE chunks
+              }
+            }
+          }
+
+          const latency = Date.now() - startTime;
+
+          // --- Persist assistant message ---
+          await db.chatMessage.create({
+            data: {
+              sessionId: chatSession.id,
+              role: "assistant",
+              content: assistantContent || "(no response)",
+              metadata: {
+                latency_ms: latency,
+                model: MODEL,
+                tokens: usage,
+                reasoning_content: reasoningContent || undefined,
+              },
+            },
+          });
+
+          // --- Update session timestamp ---
+          await db.chatSession.update({
+            where: { id: chatSession.id },
+            data: { updatedAt: new Date() },
+          });
+
+          controller.enqueue(
+            new TextEncoder().encode(
+              encodeEvent({
+                event: "done",
+                data: {
+                  sessionId: chatSession.id,
+                  latencyMs: latency,
+                  tokens: usage,
+                },
+              }),
+            ),
+          );
+          controller.close();
+        } catch (err) {
+          console.error("[Chat] Streaming error:", err);
+          controller.enqueue(
+            new TextEncoder().encode(
+              encodeEvent({
+                event: "error",
+                data: {
+                  error: err instanceof Error ? err.message : "Streaming failed",
+                },
+              }),
+            ),
+          );
+          controller.close();
+        }
+      },
+
+      cancel() {
+        reader.cancel().catch(() => {
+          // ignore cancellation errors
+        });
       },
     });
 
-    // --- Update session timestamp ---
-    await db.chatSession.update({
-      where: { id: chatSession.id },
-      data: { updatedAt: new Date() },
-    });
-
-    return NextResponse.json({
-      sessionId: chatSession.id,
-      message: assistantContent,
-      tokens: nvidiaData.usage,
-      latency_ms: latency,
+    return new Response(stream, {
+      headers: {
+        "Content-Type": "text/event-stream",
+        "Cache-Control": "no-cache",
+        Connection: "keep-alive",
+      },
     });
   } catch (error) {
     console.error("[Chat] Error:", error);

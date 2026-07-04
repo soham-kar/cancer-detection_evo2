@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { CheckCircle, Loader2, XCircle } from "lucide-react";
 
-export default function BillingSuccessPage() {
+function BillingSuccessContent() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const [status, setStatus] = useState<"loading" | "success" | "error">("loading");
@@ -115,5 +115,25 @@ export default function BillingSuccessPage() {
                 )}
             </div>
         </div>
+    );
+}
+
+export default function BillingSuccessPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-[#f4f7f5] flex items-center justify-center p-6">
+                <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full text-center">
+                    <Loader2 className="h-16 w-16 text-[#de8246] animate-spin mx-auto mb-4" />
+                    <h1 className="text-2xl font-semibold text-[#3c4f3d] mb-2">
+                        Processing Payment...
+                    </h1>
+                    <p className="text-[#3c4f3d]/70">
+                        Please wait while we add credits to your account.
+                    </p>
+                </div>
+            </div>
+        }>
+            <BillingSuccessContent />
+        </Suspense>
     );
 }

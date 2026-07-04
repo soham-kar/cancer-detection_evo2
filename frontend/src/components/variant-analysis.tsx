@@ -22,7 +22,6 @@ import {
   getNucleotideColorClass,
 } from "~/utils/coloring-utils";
 import { Button } from "./ui/button";
-import { match } from "node:assert";
 import { Zap, ShoppingCart } from "lucide-react";
 import { FormattedClinicalSummary } from "./formatted-clinical-summary";
 import { ISMHeatmap } from "./ism-heatmap";
@@ -32,7 +31,7 @@ import { XAIPanel } from "./xai-panel";
 import { KnowledgeGraphCard } from "./knowledge-graph-card";
 import { ToolConcordance } from "./tool-concordance";
 import { ACMGRefinedCard } from "./acmg-refined-card";
-
+import { useActiveVariant } from "~/hooks/use-active-variant";
 export interface VariantAnalysisHandle {
   focusAlternativeInput: () => void;
 }
@@ -75,6 +74,14 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
     const [needsCredits, setNeedsCredits] = useState(false);
     const [enableISM, setEnableISM] = useState(false);
     const alternativeInputRef = useRef<HTMLInputElement>(null);
+    const { setActiveVariant, clearActiveVariant } = useActiveVariant();
+
+    // Clear active variant context when the component unmounts or gene changes
+    useEffect(() => {
+      return () => {
+        clearActiveVariant();
+      };
+    }, [gene?.symbol, clearActiveVariant]);
 
     useImperativeHandle(ref, () => ({
       focusAlternativeInput: () => {
@@ -126,6 +133,25 @@ const VariantAnalysis = forwardRef<VariantAnalysisHandle, VariantAnalysisProps>(
           runISMScan: enableISM,
         });
         setVariantResult(data);
+
+        // Activate this variant as the chatbot context
+        setActiveVariant({
+          reportId: `live-${gene?.symbol}-${data.position}-${Date.now()}`,
+          geneSymbol: gene?.symbol || "Unknown",
+          chromosome,
+          position: data.position,
+          reference: data.reference || "",
+          alternative: data.alternative,
+          genomeId,
+          prediction: data.prediction,
+          deltaScore: data.delta_score,
+          classificationConfidence: data.classification_confidence,
+          clinvarClassification: data.clinvar_evidence?.status ?? null,
+          variationType: null,
+          clinvarId: data.clinvar_evidence?.variation_id ?? null,
+          reportData: data as unknown as Record<string, unknown>,
+        });
+
         // Trigger history refresh
         onAnalysisComplete?.();
         // Notify other components (e.g. AnalysisHistory) that a new report exists

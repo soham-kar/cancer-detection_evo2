@@ -3,6 +3,8 @@ import "~/styles/globals.css";
 import { ClerkProvider } from "@clerk/nextjs";
 import { type Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
+import { ActiveVariantProvider } from "~/contexts/active-variant";
+import { ChatLayer } from "~/components/chat/chat-layer";
 
 export const metadata: Metadata = {
   title: "HelixMind - Precision Genomic Variant Analysis",
@@ -54,9 +56,14 @@ export default function RootLayout({
         }
       }}
     >
-      <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
-        <body>{children}</body>
-      </html>
+      <ActiveVariantProvider>
+        <html lang="en" className={`${inter.variable} ${jetbrainsMono.variable}`}>
+          <body className="relative">
+            {children}
+            <ChatLayer />
+          </body>
+        </html>
+      </ActiveVariantProvider>
     </ClerkProvider>
   );
 }

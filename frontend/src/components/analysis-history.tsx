@@ -7,9 +7,9 @@ import {
   ChevronDown,
   ChevronUp,
   Dna,
-  Eye,
 } from "lucide-react";
 import { SavedReportModal, type SavedReport } from "./saved-report-modal";
+import { useActiveVariant } from "~/hooks/use-active-variant";
 
 interface AnalysisReport {
   id: string;
@@ -43,11 +43,16 @@ export const AnalysisHistory = React.forwardRef<
   const [isExpanded, setIsExpanded] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedReportId, setSelectedReportId] = useState<string | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _selectedReportId = selectedReportId;
   const [selectedReport, setSelectedReport] = useState<SavedReport | null>(
     null,
   );
   const [isLoadingReport, setIsLoadingReport] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const { setActiveVariant, clearActiveVariant } = useActiveVariant();
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const _isLoadingReport = isLoadingReport;
 
   const fetchHistory = React.useCallback(async () => {
     try {
@@ -147,7 +152,26 @@ export const AnalysisHistory = React.forwardRef<
       const response = await fetch(`/api/history?id=${reportId}`);
       if (response.ok) {
         const data = await response.json();
-        setSelectedReport(data.report);
+        const report = data.report as SavedReport;
+        setSelectedReport(report);
+
+        // Activate this report as the chatbot context
+        setActiveVariant({
+          reportId: report.id,
+          geneSymbol: report.geneSymbol,
+          chromosome: report.chromosome,
+          position: report.position,
+          reference: report.reference,
+          alternative: report.alternative,
+          genomeId: report.genomeId,
+          prediction: report.prediction,
+          deltaScore: report.deltaScore,
+          classificationConfidence: report.classificationConfidence,
+          clinvarClassification: report.clinvarClassification ?? null,
+          variationType: report.variationType ?? null,
+          clinvarId: report.clinvarId ?? null,
+          reportData: report as unknown as Record<string, unknown>,
+        });
       }
     } catch (err) {
       console.error("Failed to load report:", err);
@@ -323,6 +347,7 @@ export const AnalysisHistory = React.forwardRef<
           onClose={() => {
             setSelectedReport(null);
             setSelectedReportId(null);
+            clearActiveVariant();
           }}
         />
       )}

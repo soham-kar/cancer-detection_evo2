@@ -3,20 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "./ui/button";
 import {
-  Check,
   X,
-  Shield,
   ExternalLink,
   Download,
   Copy,
   Trash2,
-  Brain,
   FileDown,
 } from "lucide-react";
 import { getClassificationColorClasses } from "~/utils/coloring-utils";
-import { VariantSequenceContext } from "./variant-sequence-context";
-import { GeneDomainMap } from "./gene-domain-map";
-import { VariantMechanismExplainer } from "./variant-mechanism-explainer";
 import type { VEPAnnotation } from "~/app/api/vep/route";
 import { FormattedClinicalSummary } from "./formatted-clinical-summary";
 import { ISMHeatmap } from "./ism-heatmap";
@@ -31,7 +25,7 @@ import {
 } from "./multi-model-consensus";
 import { ACMGRefinedCard } from "./acmg-refined-card";
 import { DesignTherapeutics } from "./design-therapeutics";
-import { ReportChatBot } from "./report-chat-bot";
+import { useActiveVariant } from "~/hooks/use-active-variant";
 import type {
   ISMScanResult,
   XAIFactors,
@@ -260,15 +254,33 @@ export function SavedReportModal({
   const [showXAI, setShowXAI] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
+  const { setActiveVariant, clearActiveVariant } = useActiveVariant();
 
   useEffect(() => {
     if (report) {
       document.body.style.overflow = "hidden";
+      setActiveVariant({
+        reportId: report.id,
+        geneSymbol: report.geneSymbol,
+        chromosome: report.chromosome,
+        position: report.position,
+        reference: report.reference,
+        alternative: report.alternative,
+        genomeId: report.genomeId,
+        prediction: report.prediction,
+        deltaScore: report.deltaScore,
+        classificationConfidence: report.classificationConfidence,
+        clinvarClassification: report.clinvarClassification,
+        variationType: report.variationType,
+        clinvarId: report.clinvarId,
+        reportData: report as unknown as Record<string, unknown>,
+      });
       return () => {
         document.body.style.overflow = "";
+        clearActiveVariant();
       };
     }
-  }, [report]);
+  }, [report, setActiveVariant, clearActiveVariant]);
 
   if (!report) return null;
 
@@ -505,8 +517,6 @@ Cross-references:
       });
 
       // ── Restore everything ── (also done in finally for error safety)
-
-      const imgData = canvas.toDataURL("image/png");
 
       // A4 in mm: 210 × 297
       const pdf = new jsPDF({
@@ -1166,15 +1176,6 @@ Cross-references:
           {/* ── Design Therapeutics ── */}
           <div className="mt-4">
             <DesignTherapeutics report={report} />
-          </div>
-
-          {/* ── AI Chatbot ── */}
-          <div className="mt-4">
-            <ReportChatBot
-              reportId={report.id}
-              geneSymbol={report.geneSymbol}
-              variantLabel={`${report.reference}>${report.alternative}`}
-            />
           </div>
 
           {/* ── Evidence Consensus Table now lives inside XAI panel above ── */}
