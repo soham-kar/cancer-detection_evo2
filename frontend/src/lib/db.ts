@@ -18,11 +18,13 @@
 //   - DATABASE_URL: PostgreSQL connection string
 // =============================================================================
 
-import { PrismaClient } from "@prisma/client";
+import { PrismaClient } from "../../generated/prisma";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { Pool } from "pg";
 
 /**
  * Global Prisma client singleton to prevent multiple instances in development.
- * 
+ *
  * Next.js hot-reloading in development creates new module instances,
  * which would create multiple Prisma clients and exhaust database connections.
  * This pattern stores the client in the global scope to persist across reloads.
@@ -31,15 +33,24 @@ const globalForPrisma = globalThis as unknown as {
     prisma: PrismaClient | undefined;
 };
 
+const connectionString = process.env.DATABASE_URL;
+
 /**
  * Prisma database client with environment-specific logging.
- * 
+ *
  * Development: Logs errors and warnings for debugging
  * Production: Logs only errors to minimize performance impact
  */
 export const db =
     globalForPrisma.prisma ??
     new PrismaClient({
+        adapter: new PrismaPg(
+            new Pool({
+                connectionString,
+                max: 10,
+                ssl: { rejectUnauthorized: false },
+            }),
+        ),
         log:
             process.env.NODE_ENV === "development"
                 ? ["error", "warn"]
