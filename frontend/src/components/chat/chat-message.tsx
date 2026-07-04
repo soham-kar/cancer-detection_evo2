@@ -9,6 +9,8 @@ import {
   CollapsibleTrigger,
 } from "~/components/ui/collapsible";
 import { useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 // =============================================================================
 // ChatMessage - Individual message bubble with optional reasoning
@@ -77,12 +79,20 @@ export function ChatMessage({ message }: ChatMessageProps) {
           </Collapsible>
         )}
 
-        <div className="whitespace-pre-wrap leading-relaxed">
-          {message.content}
-          {message.isStreaming && !message.reasoning && (
-            <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#de8246]" />
-          )}
-        </div>
+        {isUser ? (
+          <div className="whitespace-pre-wrap leading-relaxed">
+            {message.content}
+          </div>
+        ) : (
+          <div className="chat-markdown leading-relaxed">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {message.content || ""}
+            </ReactMarkdown>
+            {message.isStreaming && !message.reasoning && (
+              <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#de8246]" />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
