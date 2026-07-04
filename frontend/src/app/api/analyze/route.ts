@@ -23,7 +23,12 @@ import {
   setCooldown,
 } from "~/lib/user-utils";
 import { db } from "~/lib/db";
-import type { InputJsonValue } from "@prisma/client/runtime/library";
+type InputJsonValue =
+  | string
+  | number
+  | boolean
+  | { [key: string]: InputJsonValue }
+  | InputJsonValue[];
 
 // Credit system configuration
 const FREE_LIMIT_PER_DAY = 10; // Maximum free analyses per day
