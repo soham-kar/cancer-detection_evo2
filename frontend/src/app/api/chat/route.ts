@@ -22,6 +22,8 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { currentUser } from "@clerk/nextjs/server";
 import { db } from "~/lib/db";
+import { getToolsForMode } from "~/lib/chat-tools";
+import { executeProtoTool } from "~/lib/proto-tools-router";
 
 // =============================================================================
 // Configuration
@@ -43,7 +45,7 @@ interface ChatRequestBody {
 }
 
 interface StreamEvent {
-  event: "reasoning_delta" | "content_delta" | "done" | "error";
+  event: "reasoning_delta" | "content_delta" | "tool_call" | "tool_result" | "done" | "error";
   data: Record<string, unknown>;
 }
 
@@ -419,105 +421,251 @@ export async function POST(request: NextRequest) {
     console.log("[Chat] Calling NVIDIA Nemotron API (streaming)...");
     const startTime = Date.now();
 
-    const nvidiaResponse = await fetch(NVIDIA_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${NVIDIA_API_KEY}`,
-      },
-      body: JSON.stringify({
-        model: MODEL,
-        messages: nvidiaMessages,
-        temperature: 0.3,
-        top_p: 0.9,
-        max_tokens: 1024,
-        stream: true,
-      }),
-      signal: AbortSignal.timeout(180_000),
-    });
-
-    if (!nvidiaResponse.ok) {
-      const errorText = await nvidiaResponse.text();
-      console.error("[Chat] NVIDIA API error:", errorText);
-      throw new Error(`NVIDIA API error: ${nvidiaResponse.status}`);
-    }
-
-    if (!nvidiaResponse.body) {
-      throw new Error("NVIDIA returned an empty response body");
-    }
-
-    // --- Stream response back to client while accumulating content ---
-    const reader = nvidiaResponse.body.getReader();
-    const decoder = new TextDecoder();
-    let reasoningContent = "";
-    let assistantContent = "";
-    let usage:
-      | { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number }
-      | undefined;
+    // --- Get tool definitions for this mode ---
+    const tools = getToolsForMode(mode);
+    const MAX_TOOL_CALLS = 3;
 
     const stream = new ReadableStream({
       async start(controller) {
+        const encoder = new TextEncoder();
+        const send = (event: StreamEvent) => {
+          controller.enqueue(encoder.encode(encodeEvent(event)));
+        };
+
         try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
+          let reasoningContent = "";
+          let assistantContent = "";
+          let toolCallCount = 0;
+          let usage:
+            | { total_tokens?: number; prompt_tokens?: number; completion_tokens?: number }
+            | undefined;
+          // Track accumulated tool calls for this message
+          const messageToolCalls: Array<{
+            toolCallId: string;
+            toolName: string;
+            status: "calling" | "completed" | "failed";
+            args: Record<string, unknown>;
+            result?: Record<string, unknown>;
+            error?: string;
+            executionTimeMs?: number;
+          }> = [];
 
-            const chunk = decoder.decode(value, { stream: true });
-            const lines = chunk.split("\n");
+          // ─── Tool-calling loop (max MAX_TOOL_CALLS iterations) ───────────
+          while (toolCallCount <= MAX_TOOL_CALLS) {
+            // Call NVIDIA Nemotron API
+            const nvidiaBody: Record<string, unknown> = {
+              model: MODEL,
+              messages: nvidiaMessages,
+              temperature: 0.3,
+              top_p: 0.9,
+              max_tokens: 1024,
+              stream: true,
+            };
 
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (!trimmed || !trimmed.startsWith("data:")) continue;
+            // Add tools if we have any
+            if (tools.length > 0) {
+              nvidiaBody.tools = tools;
+              nvidiaBody.tool_choice = "auto";
+            }
 
-              const dataStr = trimmed.slice(5).trim();
-              if (dataStr === "[DONE]") continue;
+            const nvidiaResponse = await fetch(NVIDIA_API_URL, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${NVIDIA_API_KEY}`,
+              },
+              body: JSON.stringify(nvidiaBody),
+              signal: AbortSignal.timeout(180_000),
+            });
 
-              try {
-                const parsed = JSON.parse(dataStr) as {
-                  choices?: Array<{
-                    delta?: {
-                      content?: string;
-                      reasoning_content?: string;
+            if (!nvidiaResponse.ok) {
+              const errorText = await nvidiaResponse.text();
+              console.error("[Chat] NVIDIA API error:", errorText);
+              throw new Error(`NVIDIA API error: ${nvidiaResponse.status}`);
+            }
+
+            if (!nvidiaResponse.body) {
+              throw new Error("NVIDIA returned an empty response body");
+            }
+
+            // Parse the SSE stream from NVIDIA
+            const reader = nvidiaResponse.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = "";
+            let finishReason: string | null = null;
+            // Accumulate tool calls from this iteration
+            const iterationToolCalls: Array<{
+              id: string;
+              name: string;
+              arguments: string;
+            }> = [];
+
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split("\n");
+              buffer = lines.pop() || "";
+
+              for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || !trimmed.startsWith("data:")) continue;
+
+                const dataStr = trimmed.slice(5).trim();
+                if (dataStr === "[DONE]") continue;
+
+                try {
+                  const parsed = JSON.parse(dataStr) as {
+                    choices?: Array<{
+                      delta?: {
+                        content?: string;
+                        reasoning_content?: string;
+                        tool_calls?: Array<{
+                          id: string;
+                          function: { name: string; arguments: string };
+                        }>;
+                      };
+                      finish_reason?: string | null;
+                    }>;
+                    usage?: {
+                      total_tokens?: number;
+                      prompt_tokens?: number;
+                      completion_tokens?: number;
                     };
-                    finish_reason?: string | null;
-                  }>;
-                  usage?: {
-                    total_tokens?: number;
-                    prompt_tokens?: number;
-                    completion_tokens?: number;
                   };
-                };
 
-                const delta = parsed.choices?.[0]?.delta;
-                if (delta?.reasoning_content) {
-                  reasoningContent += delta.reasoning_content;
-                  controller.enqueue(
-                    new TextEncoder().encode(
-                      encodeEvent({
-                        event: "reasoning_delta",
-                        data: { delta: delta.reasoning_content },
-                      }),
-                    ),
-                  );
+                  const delta = parsed.choices?.[0]?.delta;
+                  if (delta?.reasoning_content) {
+                    reasoningContent += delta.reasoning_content;
+                    send({
+                      event: "reasoning_delta",
+                      data: { delta: delta.reasoning_content },
+                    });
+                  }
+                  if (delta?.content) {
+                    assistantContent += delta.content;
+                    send({
+                      event: "content_delta",
+                      data: { delta: delta.content },
+                    });
+                  }
+                  if (delta?.tool_calls) {
+                    for (const tc of delta.tool_calls) {
+                      // Accumulate tool call (arguments may arrive in chunks)
+                      const existing = iterationToolCalls.find(
+                        (t) => t.id === tc.id,
+                      );
+                      if (existing) {
+                        existing.arguments += tc.function.arguments;
+                      } else {
+                        iterationToolCalls.push({
+                          id: tc.id,
+                          name: tc.function.name,
+                          arguments: tc.function.arguments,
+                        });
+                      }
+                    }
+                  }
+                  if (parsed.choices?.[0]?.finish_reason) {
+                    finishReason = parsed.choices[0].finish_reason;
+                  }
+                  if (parsed.usage) {
+                    usage = parsed.usage;
+                  }
+                } catch {
+                  // Ignore malformed SSE chunks
                 }
-                if (delta?.content) {
-                  assistantContent += delta.content;
-                  controller.enqueue(
-                    new TextEncoder().encode(
-                      encodeEvent({
-                        event: "content_delta",
-                        data: { delta: delta.content },
-                      }),
-                    ),
-                  );
-                }
-                if (parsed.usage) {
-                  usage = parsed.usage;
-                }
-              } catch {
-                // Ignore malformed SSE chunks
               }
             }
+
+            // ─── Check if Nemotron wants to call tools ────────────────────
+            if (
+              iterationToolCalls.length > 0 &&
+              finishReason === "tool_calls" &&
+              toolCallCount < MAX_TOOL_CALLS
+            ) {
+              // Execute each tool call
+              for (const tc of iterationToolCalls) {
+                let parsedArgs: Record<string, unknown> = {};
+                try {
+                  parsedArgs = JSON.parse(tc.arguments);
+                } catch {
+                  parsedArgs = { _raw: tc.arguments };
+                }
+
+                // Send "calling" status to frontend
+                send({
+                  event: "tool_call",
+                  data: {
+                    toolCallId: tc.id,
+                    toolName: tc.name,
+                    status: "calling",
+                    args: parsedArgs,
+                  },
+                });
+
+                const messageToolCall: {
+                  toolCallId: string;
+                  toolName: string;
+                  status: "calling" | "completed" | "failed";
+                  args: Record<string, unknown>;
+                  result?: Record<string, unknown>;
+                  error?: string;
+                  executionTimeMs?: number;
+                } = {
+                  toolCallId: tc.id,
+                  toolName: tc.name,
+                  status: "calling",
+                  args: parsedArgs,
+                };
+                messageToolCalls.push(messageToolCall);
+
+                // Execute the tool via Modal
+                console.log(`[Chat] Executing tool: ${tc.name} with args:`, parsedArgs);
+                const toolResult = await executeProtoTool(tc.name, parsedArgs);
+
+                // Update status
+                messageToolCall.status = toolResult.status;
+                messageToolCall.result = toolResult.result;
+                messageToolCall.error = toolResult.error;
+                messageToolCall.executionTimeMs = toolResult.executionTimeMs;
+
+                // Send result to frontend
+                send({
+                  event: "tool_result",
+                  data: {
+                    toolCallId: tc.id,
+                    toolName: tc.name,
+                    status: toolResult.status,
+                    result: toolResult.result,
+                    error: toolResult.error,
+                    executionTimeMs: toolResult.executionTimeMs,
+                  },
+                });
+
+                // Add tool result to messages for next Nemotron call
+                nvidiaMessages.push({
+                  role: "assistant",
+                  content: "",
+                });
+                nvidiaMessages.push({
+                  role: "tool",
+                  content: JSON.stringify(
+                    toolResult.status === "completed"
+                      ? toolResult.result
+                      : { error: toolResult.error },
+                  ),
+                });
+              }
+
+              toolCallCount++;
+              // Continue the loop — Nemotron will process tool results
+              continue;
+            }
+
+            // No tool calls or max reached — we're done
+            break;
           }
 
           const latency = Date.now() - startTime;
@@ -533,6 +681,10 @@ export async function POST(request: NextRequest) {
                 model: MODEL,
                 tokens: usage,
                 reasoning_content: reasoningContent || undefined,
+                tool_calls:
+                  messageToolCalls.length > 0
+                    ? JSON.parse(JSON.stringify(messageToolCalls))
+                    : undefined,
               },
             },
           });
@@ -543,39 +695,25 @@ export async function POST(request: NextRequest) {
             data: { updatedAt: new Date() },
           });
 
-          controller.enqueue(
-            new TextEncoder().encode(
-              encodeEvent({
-                event: "done",
-                data: {
-                  sessionId: chatSession.id,
-                  latencyMs: latency,
-                  tokens: usage,
-                },
-              }),
-            ),
-          );
+          send({
+            event: "done",
+            data: {
+              sessionId: chatSession.id,
+              latencyMs: latency,
+              tokens: usage,
+            },
+          });
           controller.close();
         } catch (err) {
           console.error("[Chat] Streaming error:", err);
-          controller.enqueue(
-            new TextEncoder().encode(
-              encodeEvent({
-                event: "error",
-                data: {
-                  error: err instanceof Error ? err.message : "Streaming failed",
-                },
-              }),
-            ),
-          );
+          send({
+            event: "error",
+            data: {
+              error: err instanceof Error ? err.message : "Streaming failed",
+            },
+          });
           controller.close();
         }
-      },
-
-      cancel() {
-        reader.cancel().catch(() => {
-          // ignore cancellation errors
-        });
       },
     });
 

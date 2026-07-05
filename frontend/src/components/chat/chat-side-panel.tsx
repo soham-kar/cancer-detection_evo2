@@ -200,6 +200,56 @@ export function ChatSidePanel({ isOpen, onClose, isExpanded, onToggleExpand }: C
                     updated.content = (updated.content || "") + delta;
                     return [...prev.slice(0, -1), updated];
                   });
+                } else if (eventName === "tool_call") {
+                  // Tool call started — add to the assistant message's toolCalls array
+                  const toolCallData = data as {
+                    toolCallId: string;
+                    toolName: string;
+                    status: string;
+                    args: Record<string, unknown>;
+                  };
+                  setMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (!last || last.role !== "assistant") return prev;
+                    const updated = { ...last };
+                    updated.toolCalls = [
+                      ...(updated.toolCalls || []),
+                      {
+                        toolCallId: toolCallData.toolCallId,
+                        toolName: toolCallData.toolName,
+                        status: "calling",
+                        args: toolCallData.args,
+                      },
+                    ];
+                    return [...prev.slice(0, -1), updated];
+                  });
+                } else if (eventName === "tool_result") {
+                  // Tool call completed — update the tool call in the message
+                  const resultData = data as {
+                    toolCallId: string;
+                    toolName: string;
+                    status: string;
+                    result?: Record<string, unknown>;
+                    error?: string;
+                    executionTimeMs?: number;
+                  };
+                  setMessages((prev) => {
+                    const last = prev[prev.length - 1];
+                    if (!last || last.role !== "assistant") return prev;
+                    const updated = { ...last };
+                    updated.toolCalls = (updated.toolCalls || []).map((tc) =>
+                      tc.toolCallId === resultData.toolCallId
+                        ? {
+                            ...tc,
+                            status: resultData.status as "completed" | "failed",
+                            result: resultData.result,
+                            error: resultData.error,
+                            executionTimeMs: resultData.executionTimeMs,
+                          }
+                        : tc,
+                    );
+                    return [...prev.slice(0, -1), updated];
+                  });
                 } else if (eventName === "done") {
                   const doneData = data as {
                     sessionId?: string;

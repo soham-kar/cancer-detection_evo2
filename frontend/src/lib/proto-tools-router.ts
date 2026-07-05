@@ -1,0 +1,139 @@
+// =============================================================================
+// Proto-Tools Router — Routes tool calls to the correct Modal endpoint
+// =============================================================================
+// CPU tools go to proto-tools-lite (fast, <30s)
+// GPU tools go to proto-tools-gpu (slow, 30s-5min) — not yet deployed
+// =============================================================================
+
+const PROTO_TOOLS_LITE_URL =
+  process.env.PROTO_TOOLS_LITE_URL ||
+  "https://sohamkar45--helixmind-proto-lite-run-tool.modal.run";
+
+const PROTO_TOOLS_GPU_URL = process.env.PROTO_TOOLS_GPU_URL || "";
+
+// Tools that run on CPU (proto-tools-lite)
+const CPU_TOOLS = new Set([
+  "uniprot_fetch",
+  "alphafold_db_fetch",
+  "alphamissense_fetch",
+  "ensembl_vep",
+  "ensembl_lookup",
+  "ensembl_sequence",
+  "pdb_fetch_entry",
+  "pdb_fetch_fasta",
+  "ncbi_esearch",
+  "ncbi_efetch",
+  "ncbi_esummary",
+  "pubchem_fetch",
+  "spliceai_predict",
+  "pangolin_predict",
+  "pangolin_score_variants",
+  "dssp_secondary_structure",
+]);
+
+// Tools that require GPU (proto-tools-gpu) — will be added later
+const GPU_TOOLS = new Set([
+  "esmfold_prediction",
+  "esm2_score",
+  "esm2_embedding",
+  "alphafold2_prediction",
+  "proteinmpnn_score",
+]);
+
+interface ToolExecutionResult {
+  toolKey: string;
+  status: "completed" | "failed";
+  result?: Record<string, unknown>;
+  error?: string;
+  executionTimeMs: number;
+}
+
+/**
+ * Execute a proto-tool via the appropriate Modal endpoint.
+ *
+ * @param toolKey - The proto-tools tool identifier (e.g. "uniprot_fetch")
+ * @param input - Tool input parameters
+ * @param config - Optional tool configuration
+ * @returns Tool execution result with status, result, and timing
+ */
+export async function executeProtoTool(
+  toolKey: string,
+  input: Record<string, unknown>,
+  config?: Record<string, unknown>,
+): Promise<ToolExecutionResult> {
+  const startTime = Date.now();
+
+  // Determine endpoint
+  const endpoint = GPU_TOOLS.has(toolKey)
+    ? PROTO_TOOLS_GPU_URL
+    : PROTO_TOOLS_LITE_URL;
+
+  if (!endpoint) {
+    return {
+      toolKey,
+      status: "failed",
+      error: `No endpoint configured for tool '${toolKey}'`,
+      executionTimeMs: 0,
+    };
+  }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        tool_key: toolKey,
+        input,
+        config: config || {},
+      }),
+      signal: AbortSignal.timeout(120_000), // 2 min timeout
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      return {
+        toolKey,
+        status: "failed",
+        error: `Modal endpoint returned ${response.status}: ${errorText}`,
+        executionTimeMs: Date.now() - startTime,
+      };
+    }
+
+    const data = (await response.json()) as {
+      tool_key: string;
+      status: string;
+      result?: Record<string, unknown>;
+      error?: string;
+      execution_time_ms: number;
+    };
+
+    return {
+      toolKey: data.tool_key || toolKey,
+      status: data.status === "completed" ? "completed" : "failed",
+      result: data.result,
+      error: data.error,
+      executionTimeMs: data.execution_time_ms || Date.now() - startTime,
+    };
+  } catch (err) {
+    return {
+      toolKey,
+      status: "failed",
+      error: err instanceof Error ? err.message : "Tool execution failed",
+      executionTimeMs: Date.now() - startTime,
+    };
+  }
+}
+
+/**
+ * Check if a tool is a CPU tool (fast).
+ */
+export function isCpuTool(toolKey: string): boolean {
+  return CPU_TOOLS.has(toolKey);
+}
+
+/**
+ * Check if a tool is a GPU tool (slow).
+ */
+export function isGpuTool(toolKey: string): boolean {
+  return GPU_TOOLS.has(toolKey);
+}

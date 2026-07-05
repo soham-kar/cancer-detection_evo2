@@ -5,6 +5,7 @@ import { cn } from "~/lib/utils";
 import { Avatar, AvatarFallback } from "~/components/ui/avatar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { ChatToolCallBlock, type ToolCallData } from "./chat-tool-call-block";
 
 // =============================================================================
 // ChatMessage - Individual message bubble with always-visible reasoning
@@ -15,6 +16,7 @@ export interface ChatMessageData {
   role: "user" | "assistant" | "system";
   content: string;
   reasoning?: string;
+  toolCalls?: ToolCallData[];
   createdAt: string;
   isStreaming?: boolean;
 }
@@ -64,6 +66,15 @@ export function ChatMessage({ message }: ChatMessageProps) {
                 <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#de8246]" />
               )}
             </div>
+          </div>
+        )}
+
+        {/* Tool calls — rendered between chain-of-thought and answer */}
+        {!isUser && message.toolCalls && message.toolCalls.length > 0 && (
+          <div className="flex flex-col gap-1.5">
+            {message.toolCalls.map((tc) => (
+              <ChatToolCallBlock key={tc.toolCallId} toolCall={tc} />
+            ))}
           </div>
         )}
 
