@@ -30,6 +30,8 @@ const TOOL_NAME_MAP: Record<string, string> = {
   run_pangolin_predict: "pangolin_predict",
   run_pangolin_score_variants: "pangolin_score_variants",
   run_dssp_secondary_structure: "dssp_secondary_structure",
+  run_interproscan_fetch: "interproscan_fetch",
+  run_structure_metrics: "structure_metrics",
 };
 
 // Tools that run on CPU (proto-tools-lite)

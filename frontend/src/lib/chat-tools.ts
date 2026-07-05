@@ -285,6 +285,32 @@ const TIER2_TOOLS: ToolDefinition[] = [
     },
     ["structure"],
   ),
+  defineTool(
+    "run_interproscan_fetch",
+    "Fetch InterPro domain annotations by UniProt accession (direct REST lookup) or by raw protein sequence (submit-and-scan). Returns domain hits across Pfam, SMART, PROSITE, Gene3D, Panther, and all InterPro member databases. Use this for comprehensive domain annotation when UniProt data is insufficient.",
+    {
+      uniprot_id: {
+        type: "string",
+        description: "UniProt accession for direct lookup (e.g. 'P38398' for BRCA1, 'P04637' for TP53)",
+      },
+      sequence: {
+        type: "string",
+        description: "Raw protein sequence for submit-and-scan path (requires email in config)",
+      },
+    },
+    [],
+  ),
+  defineTool(
+    "run_structure_metrics",
+    "Compute structural quality metrics (secondary structure percentages, longest helix, gyration radius) from a PDB file. Use this to evaluate the overall quality and composition of a protein structure.",
+    {
+      structure: {
+        type: "string",
+        description: "PDB format structure string",
+      },
+    },
+    ["structure"],
+  ),
 ];
 
 // =============================================================================

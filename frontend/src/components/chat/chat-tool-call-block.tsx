@@ -40,6 +40,8 @@ const TOOL_LABELS: Record<string, string> = {
   run_pangolin_predict: "Pangolin Predict",
   run_pangolin_score_variants: "Pangolin Score Variants",
   run_dssp_secondary_structure: "DSSP Secondary Structure",
+  run_interproscan_fetch: "InterProScan Fetch",
+  run_structure_metrics: "Structure Metrics",
 };
 
 export function ChatToolCallBlock({ toolCall }: ChatToolCallBlockProps) {

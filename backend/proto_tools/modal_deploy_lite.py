@@ -26,6 +26,8 @@ Tier 2 — CPU ML Tools (1–30s):
   14. pangolin_predict          — Tissue-specific splice-site prediction
   15. pangolin_score_variants   — Variant splice-effect scoring (gain/loss)
   16. dssp_secondary_structure  — Helix/sheet/loop percentages from PDB
+  17. interproscan_fetch        — InterPro domain annotations (Pfam, SMART, etc.)
+  18. structure_metrics         — Structure quality metrics (SS, gyration, etc.)
 
 Deploy:
   modal deploy modal_deploy_lite.py
@@ -229,6 +231,29 @@ def _register_tools():
         "run": run_dssp_secondary_structure,
         "input_class": DSSPSecondaryStructureInput,
         "config_class": DSSPSecondaryStructureConfig,
+    }
+
+    # ─── Tier 2: Additional CPU Tools ────────────────────────────────
+    from proto_tools.tools.database_retrieval.interproscan import (
+        InterProScanFetchInput,
+        InterProScanFetchConfig,
+        run_interproscan_fetch,
+    )
+    from proto_tools.tools.structure_scoring.structure_metrics import (
+        StructureMetricsInput,
+        StructureMetricsConfig,
+        run_structure_metrics,
+    )
+
+    TOOL_REGISTRY["interproscan_fetch"] = {
+        "run": run_interproscan_fetch,
+        "input_class": InterProScanFetchInput,
+        "config_class": InterProScanFetchConfig,
+    }
+    TOOL_REGISTRY["structure_metrics"] = {
+        "run": run_structure_metrics,
+        "input_class": StructureMetricsInput,
+        "config_class": StructureMetricsConfig,
     }
 
 
