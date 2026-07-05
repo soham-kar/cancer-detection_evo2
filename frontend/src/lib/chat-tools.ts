@@ -144,6 +144,84 @@ const TIER1_TOOLS: ToolDefinition[] = [
     },
     ["database", "query"],
   ),
+  defineTool(
+    "fetch_ncbi_efetch",
+    "Fetch FASTA records from NCBI sequence databases (protein or nucleotide) by accession or ID. Use this to retrieve actual sequences from NCBI after a search.",
+    {
+      database: {
+        type: "string",
+        enum: ["protein", "nuccore"],
+        description: "NCBI database: protein or nucleotide",
+      },
+      id: {
+        type: "string",
+        description: "Accession or GI number (e.g. 'NP_009225.1' for BRCA1 protein)",
+      },
+      rettype: {
+        type: "string",
+        enum: ["fasta", "gb", "gp"],
+        description: "Return format. Default: fasta",
+      },
+    },
+    ["database", "id"],
+  ),
+  defineTool(
+    "fetch_ncbi_esummary",
+    "Retrieve record summary metadata from NCBI Entrez by ID. Returns title, organism, length, and other metadata. Use this after an NCBI search to get details about matching records.",
+    {
+      database: {
+        type: "string",
+        description: "NCBI database (e.g. 'protein', 'pubmed', 'clinvar')",
+      },
+      id: {
+        type: "string",
+        description: "Entrez UID (comma-separated for multiple, e.g. '12345,67890')",
+      },
+    },
+    ["database", "id"],
+  ),
+  defineTool(
+    "fetch_ensembl_lookup",
+    "Look up an Ensembl gene record by Ensembl gene ID or gene symbol. Returns chromosome, start/end position, biotype, and description. Use this when you need gene metadata or genomic coordinates.",
+    {
+      ensembl_id: {
+        type: "string",
+        description: "Ensembl gene ID (e.g. 'ENSG00000012048') or gene symbol (e.g. 'BRCA1')",
+      },
+      species: {
+        type: "string",
+        description: "Species slug (e.g. 'homo_sapiens'). Default: homo_sapiens",
+      },
+    },
+    ["ensembl_id"],
+  ),
+  defineTool(
+    "fetch_pdb_fasta",
+    "Fetch chain sequences from RCSB PDB with protein/nucleotide classification. Use this when you need the actual amino acid or nucleotide sequence of a PDB structure entry.",
+    {
+      pdb_id: {
+        type: "string",
+        description: "PDB ID (e.g. '1JM7' for BRCA1 RING domain, '1T29' for BRCT)",
+      },
+    },
+    ["pdb_id"],
+  ),
+  defineTool(
+    "fetch_pubchem",
+    "Resolve small-molecule identifiers (CID, name, SMILES, InChIKey) against PubChem. Returns canonical structure data, synonyms, and molecular formula. Use this when looking up drug compounds or small molecules.",
+    {
+      identifier: {
+        type: "string",
+        description: "Compound identifier: CID number, name (e.g. 'aspirin'), SMILES, or InChIKey",
+      },
+      namespace: {
+        type: "string",
+        enum: ["cid", "name", "smiles", "inchikey"],
+        description: "Type of identifier. Default: name",
+      },
+    },
+    ["identifier"],
+  ),
 ];
 
 // =============================================================================
