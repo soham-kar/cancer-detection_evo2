@@ -11,25 +11,24 @@ const PROTO_TOOLS_LITE_URL =
 
 const PROTO_TOOLS_GPU_URL = process.env.PROTO_TOOLS_GPU_URL || "";
 
+// Mapping from Nemotron function names → Modal proto-tools keys
+// Nemotron uses descriptive names (fetch_uniprot), Modal uses proto-tools keys (uniprot_fetch)
+const TOOL_NAME_MAP: Record<string, string> = {
+  fetch_uniprot: "uniprot_fetch",
+  fetch_alphafold_db: "alphafold_db_fetch",
+  fetch_alphamissense: "alphamissense_fetch",
+  run_ensembl_vep: "ensembl_vep",
+  fetch_ensembl_sequence: "ensembl_sequence",
+  fetch_pdb_entry: "pdb_fetch_entry",
+  search_ncbi: "ncbi_esearch",
+  run_spliceai_predict: "spliceai_predict",
+  run_pangolin_predict: "pangolin_predict",
+  run_pangolin_score_variants: "pangolin_score_variants",
+  run_dssp_secondary_structure: "dssp_secondary_structure",
+};
+
 // Tools that run on CPU (proto-tools-lite)
-const CPU_TOOLS = new Set([
-  "uniprot_fetch",
-  "alphafold_db_fetch",
-  "alphamissense_fetch",
-  "ensembl_vep",
-  "ensembl_lookup",
-  "ensembl_sequence",
-  "pdb_fetch_entry",
-  "pdb_fetch_fasta",
-  "ncbi_esearch",
-  "ncbi_efetch",
-  "ncbi_esummary",
-  "pubchem_fetch",
-  "spliceai_predict",
-  "pangolin_predict",
-  "pangolin_score_variants",
-  "dssp_secondary_structure",
-]);
+const CPU_TOOLS = new Set(Object.values(TOOL_NAME_MAP));
 
 // Tools that require GPU (proto-tools-gpu) — will be added later
 const GPU_TOOLS = new Set([
@@ -57,11 +56,14 @@ interface ToolExecutionResult {
  * @returns Tool execution result with status, result, and timing
  */
 export async function executeProtoTool(
-  toolKey: string,
+  nemotronToolName: string,
   input: Record<string, unknown>,
   config?: Record<string, unknown>,
 ): Promise<ToolExecutionResult> {
   const startTime = Date.now();
+
+  // Map Nemotron function name → Modal proto-tools key
+  const toolKey = TOOL_NAME_MAP[nemotronToolName] || nemotronToolName;
 
   // Determine endpoint
   const endpoint = GPU_TOOLS.has(toolKey)

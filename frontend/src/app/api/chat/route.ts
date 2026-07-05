@@ -645,18 +645,31 @@ export async function POST(request: NextRequest) {
                 });
 
                 // Add tool result to messages for next Nemotron call
+                // The assistant message must include the tool_calls array
                 nvidiaMessages.push({
                   role: "assistant",
                   content: "",
-                });
+                  tool_calls: [
+                    {
+                      id: tc.id,
+                      type: "function",
+                      function: {
+                        name: tc.name,
+                        arguments: tc.arguments,
+                      },
+                    },
+                  ],
+                } as { role: string; content: string; tool_calls?: unknown });
+                // The tool result message must include tool_call_id
                 nvidiaMessages.push({
                   role: "tool",
+                  tool_call_id: tc.id,
                   content: JSON.stringify(
                     toolResult.status === "completed"
                       ? toolResult.result
                       : { error: toolResult.error },
                   ),
-                });
+                } as { role: string; content: string; tool_call_id?: string });
               }
 
               toolCallCount++;
