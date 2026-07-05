@@ -255,7 +255,7 @@ export function SavedReportModal({
   const [showXAI, setShowXAI] = useState(false);
   const [isPdfLoading, setIsPdfLoading] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
-  const { setActiveVariant, clearActiveVariant, isChatPanelOpen } = useActiveVariant();
+  const { setActiveVariant, clearActiveVariant, isChatPanelOpen, isChatExpanded } = useActiveVariant();
 
   useEffect(() => {
     if (report) {
@@ -655,7 +655,7 @@ Cross-references:
   return (
     <div className={cn(
       "fixed inset-0 z-50 flex h-screen min-h-screen items-center justify-center overflow-y-auto bg-black/50 p-4 transition-all duration-300",
-      isChatPanelOpen && "pr-[420px]",
+      isChatPanelOpen && (isChatExpanded ? "pr-[620px]" : "pr-[420px]"),
     )}>
       <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl bg-white shadow-xl">
         {/* Header */}

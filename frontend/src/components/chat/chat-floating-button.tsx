@@ -18,13 +18,16 @@ interface ChatFloatingButtonProps {
   isOpen: boolean;
   onClick: () => void;
   hasActiveVariant: boolean;
+  isExpanded?: boolean;
 }
 
 export function ChatFloatingButton({
   isOpen,
   onClick,
   hasActiveVariant,
+  isExpanded = false,
 }: ChatFloatingButtonProps) {
+  const panelWidth = isExpanded ? 600 : 400;
   return (
     <TooltipProvider>
       <Tooltip>
@@ -33,12 +36,13 @@ export function ChatFloatingButton({
             onClick={onClick}
             size="icon"
             className={cn(
-              "fixed bottom-6 right-6 z-[60] h-14 w-14 rounded-full shadow-xl transition-transform hover:scale-105 active:scale-95",
-              isOpen ? "translate-x-[400px]" : "translate-x-0",
+              "fixed bottom-6 right-6 z-[60] h-14 w-14 rounded-full shadow-xl transition-all duration-300 hover:scale-105 active:scale-95",
+              isOpen ? `translate-x-[${panelWidth}px]` : "translate-x-0",
               hasActiveVariant
                 ? "bg-[#de8246] hover:bg-[#c97340]"
                 : "bg-[#3c4f3d] hover:bg-[#2a3a2b]",
             )}
+            style={isOpen ? { transform: `translateX(-${panelWidth}px)` } : undefined}
           >
             <MessageCircle className="h-6 w-6 text-white" />
             {hasActiveVariant && (

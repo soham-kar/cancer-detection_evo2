@@ -9,7 +9,7 @@ import { useActiveVariant } from "~/hooks/use-active-variant";
 // =============================================================================
 
 export function ChatLayer() {
-  const { activeVariant, isChatPanelOpen, setChatPanelOpen } = useActiveVariant();
+  const { activeVariant, isChatPanelOpen, setChatPanelOpen, isChatExpanded, setChatExpanded } = useActiveVariant();
 
   return (
     <>
@@ -17,10 +17,13 @@ export function ChatLayer() {
         isOpen={isChatPanelOpen}
         onClick={() => setChatPanelOpen(!isChatPanelOpen)}
         hasActiveVariant={!!activeVariant}
+        isExpanded={isChatExpanded}
       />
       <ChatSidePanel
         isOpen={isChatPanelOpen}
         onClose={() => setChatPanelOpen(false)}
+        isExpanded={isChatExpanded}
+        onToggleExpand={() => setChatExpanded(!isChatExpanded)}
       />
     </>
   );

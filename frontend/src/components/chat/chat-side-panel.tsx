@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Bot, Sparkles, X } from "lucide-react";
+import { Bot, Sparkles, X, Maximize2, Minimize2 } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Button } from "~/components/ui/button";
 import { Badge } from "~/components/ui/badge";
@@ -18,9 +18,11 @@ import { useActiveVariant } from "~/hooks/use-active-variant";
 interface ChatSidePanelProps {
   isOpen: boolean;
   onClose: () => void;
+  isExpanded: boolean;
+  onToggleExpand: () => void;
 }
 
-export function ChatSidePanel({ isOpen, onClose }: ChatSidePanelProps) {
+export function ChatSidePanel({ isOpen, onClose, isExpanded, onToggleExpand }: ChatSidePanelProps) {
   const { activeVariant, clearActiveVariant } = useActiveVariant();
   const [messages, setMessages] = useState<ChatMessageData[]>([]);
   const [sessions, setSessions] = useState<ChatSessionItem[]>([]);
@@ -275,7 +277,8 @@ export function ChatSidePanel({ isOpen, onClose }: ChatSidePanelProps) {
   return (
     <div
       className={cn(
-        "fixed top-0 right-0 z-[60] flex h-screen w-[400px] flex-col border-l border-[#3c4f3d]/10 bg-white shadow-2xl transition-transform duration-300 ease-in-out",
+        "fixed top-0 right-0 z-[60] flex h-screen flex-col border-l border-[#3c4f3d]/10 bg-white shadow-2xl transition-all duration-300 ease-in-out",
+        isExpanded ? "w-[600px]" : "w-[400px]",
         isOpen ? "translate-x-0" : "translate-x-full",
       )}
     >
@@ -306,6 +309,15 @@ export function ChatSidePanel({ isOpen, onClose }: ChatSidePanelProps) {
               General
             </Badge>
           )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 text-[#3c4f3d]/60 hover:text-[#3c4f3d]"
+            onClick={onToggleExpand}
+            title={isExpanded ? "Collapse panel" : "Expand panel"}
+          >
+            {isExpanded ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+          </Button>
           <Button
             variant="ghost"
             size="icon"

@@ -36,6 +36,8 @@ interface ActiveVariantContextValue {
   clearActiveVariant: () => void;
   isChatPanelOpen: boolean;
   setChatPanelOpen: (open: boolean) => void;
+  isChatExpanded: boolean;
+  setChatExpanded: (expanded: boolean) => void;
 }
 
 const ActiveVariantContext = createContext<ActiveVariantContextValue | null>(
@@ -51,6 +53,7 @@ export function ActiveVariantProvider({
     null,
   );
   const [isChatPanelOpen, setChatPanelOpenState] = useState(false);
+  const [isChatExpanded, setChatExpandedState] = useState(false);
 
   const setActiveVariant = useCallback((variant: ActiveVariant | null) => {
     setActiveVariantState(variant);
@@ -64,9 +67,13 @@ export function ActiveVariantProvider({
     setChatPanelOpenState(open);
   }, []);
 
+  const setChatExpanded = useCallback((expanded: boolean) => {
+    setChatExpandedState(expanded);
+  }, []);
+
   return (
     <ActiveVariantContext.Provider
-      value={{ activeVariant, setActiveVariant, clearActiveVariant, isChatPanelOpen, setChatPanelOpen }}
+      value={{ activeVariant, setActiveVariant, clearActiveVariant, isChatPanelOpen, setChatPanelOpen, isChatExpanded, setChatExpanded }}
     >
       {children}
     </ActiveVariantContext.Provider>

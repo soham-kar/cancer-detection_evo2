@@ -1,19 +1,13 @@
 "use client";
 
-import { Bot, User, ChevronDown, ChevronUp } from "lucide-react";
+import { Bot, User, Brain } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Avatar, AvatarFallback } from "~/components/ui/avatar";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "~/components/ui/collapsible";
-import { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 // =============================================================================
-// ChatMessage - Individual message bubble with optional reasoning
+// ChatMessage - Individual message bubble with always-visible reasoning
 // =============================================================================
 
 export interface ChatMessageData {
@@ -31,7 +25,6 @@ interface ChatMessageProps {
 
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
-  const [reasoningOpen, setReasoningOpen] = useState(false);
 
   return (
     <div
@@ -58,25 +51,20 @@ export function ChatMessage({ message }: ChatMessageProps) {
             : "border border-[#3c4f3d]/10 bg-white text-[#3c4f3d]",
         )}
       >
+        {/* Chain of thought — always visible for assistant messages with reasoning */}
         {!isUser && message.reasoning && (
-          <Collapsible open={reasoningOpen} onOpenChange={setReasoningOpen}>
-            <CollapsibleTrigger className="flex items-center gap-1 text-xs font-medium text-[#de8246] hover:underline">
-              {reasoningOpen ? (
-                <ChevronUp className="h-3 w-3" />
-              ) : (
-                <ChevronDown className="h-3 w-3" />
+          <div className="rounded-lg border border-[#de8246]/20 bg-[#de8246]/5 p-2.5">
+            <div className="mb-1 flex items-center gap-1.5 text-[11px] font-semibold tracking-wide text-[#de8246] uppercase">
+              <Brain className="h-3 w-3" />
+              {message.isStreaming ? "Thinking..." : "Chain of Thought"}
+            </div>
+            <div className="text-xs leading-relaxed text-[#3c4f3d]/70">
+              {message.reasoning}
+              {message.isStreaming && (
+                <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#de8246]" />
               )}
-              {message.isStreaming ? "Thinking..." : "Chain of thought"}
-            </CollapsibleTrigger>
-            <CollapsibleContent>
-              <div className="mt-1.5 rounded-lg bg-[#f4f7f5] p-2.5 text-xs italic text-[#3c4f3d]/80">
-                {message.reasoning}
-                {message.isStreaming && (
-                  <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#de8246]" />
-                )}
-              </div>
-            </CollapsibleContent>
-          </Collapsible>
+            </div>
+          </div>
         )}
 
         {isUser ? (
