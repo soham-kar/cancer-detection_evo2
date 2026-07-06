@@ -52,6 +52,13 @@ const GPU_TOOLS = new Set([
   "proteinmpnn_score",
 ]);
 
+// Tools that require device=cpu config (ML models that default to CUDA)
+const CPU_DEVICE_TOOLS = new Set([
+  "spliceai_predict",
+  "pangolin_predict",
+  "pangolin_score_variants",
+]);
+
 interface ToolExecutionResult {
   toolKey: string;
   status: "completed" | "failed";
@@ -63,9 +70,9 @@ interface ToolExecutionResult {
 /**
  * Execute a proto-tool via the appropriate Modal endpoint.
  *
- * @param toolKey - The proto-tools tool identifier (e.g. "uniprot_fetch")
+ * @param nemotronToolName - The Nemotron function name (mapped to tool key)
  * @param input - Tool input parameters
- * @param config - Optional tool configuration
+ * @param config - Optional tool configuration (auto-injected for CPU tools)
  * @returns Tool execution result with status, result, and timing
  */
 export async function executeProtoTool(
@@ -77,6 +84,11 @@ export async function executeProtoTool(
 
   // Map Nemotron function name → Modal proto-tools key
   const toolKey = TOOL_NAME_MAP[nemotronToolName] || nemotronToolName;
+
+  // Auto-inject device=cpu for ML tools that would otherwise default to CUDA
+  if (CPU_DEVICE_TOOLS.has(toolKey) && !config?.device) {
+    config = { ...config, device: "cpu" };
+  }
 
   // Determine endpoint
   const endpoint = GPU_TOOLS.has(toolKey)

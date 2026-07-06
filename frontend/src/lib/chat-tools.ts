@@ -109,11 +109,6 @@ const TIER1_TOOLS: ToolDefinition[] = [
         type: "string",
         description: "Ensembl ID (e.g. ENST00000357654 for transcript, ENSP00000350183 for protein)",
       },
-      sequence_type: {
-        type: "string",
-        enum: ["genomic", "cds", "cdna", "protein"],
-        description: "Type of sequence to fetch. Default: genomic",
-      },
     },
     ["ensembl_id"],
   ),
@@ -153,12 +148,12 @@ const TIER1_TOOLS: ToolDefinition[] = [
         enum: ["protein", "nuccore"],
         description: "NCBI database: protein or nucleotide",
       },
-      id: {
+      identifier: {
         type: "string",
         description: "Accession or GI number (e.g. 'NP_009225.1' for BRCA1 protein)",
       },
     },
-    ["db", "id"],
+    ["db", "identifier"],
   ),
   defineTool(
     "fetch_ncbi_esummary",
@@ -168,12 +163,12 @@ const TIER1_TOOLS: ToolDefinition[] = [
         type: "string",
         description: "NCBI database (e.g. 'protein', 'pubmed', 'clinvar')",
       },
-      id: {
+      identifier: {
         type: "string",
         description: "Entrez UID (comma-separated for multiple, e.g. '12345,67890')",
       },
     },
-    ["db", "id"],
+    ["db", "identifier"],
   ),
   defineTool(
     "fetch_ensembl_lookup",
@@ -250,35 +245,44 @@ const TIER2_TOOLS: ToolDefinition[] = [
     "run_pangolin_score_variants",
     "Score a variant for splice-altering effects using Pangolin deep learning model. Returns gain/loss scores for acceptor/donor splice sites. Delta >0.2 suggests splice disruption. Use this when the user asks about splicing effects of a specific variant. Requires the DNA sequence (>=5000bp flank on each side of the variant).",
     {
-      sequence: {
-        type: "string",
-        description: "Full DNA sequence including at least 5000bp on each side of the variant position",
-      },
-      variant_position: {
-        type: "number",
-        description: "0-based position of the variant within the sequence",
-      },
-      reference_bases: {
-        type: "string",
-        description: "Reference allele at the variant position (e.g. 'A')",
-      },
-      alternate_bases: {
-        type: "string",
-        description: "Alternate allele at the variant position (e.g. 'C')",
+      variants: {
+        type: "array",
+        description: "Array of variant objects to score",
+        items: {
+          type: "object",
+          properties: {
+            sequence: {
+              type: "string",
+              description: "Full DNA sequence including at least 5000bp on each side of the variant position",
+            },
+            variant_position: {
+              type: "number",
+              description: "0-based position of the variant within the sequence",
+            },
+            reference_bases: {
+              type: "string",
+              description: "Reference allele at the variant position (e.g. 'A')",
+            },
+            alternate_bases: {
+              type: "string",
+              description: "Alternate allele at the variant position (e.g. 'C')",
+            },
+          },
+        },
       },
     },
-    ["sequence", "variant_position", "reference_bases", "alternate_bases"],
+    ["variants"],
   ),
   defineTool(
     "run_dssp_secondary_structure",
     "Assign secondary structure (helix/sheet/loop percentages) from a PDB structure file using DSSP. Use this when analyzing the structural composition of a protein.",
     {
-      structure: {
+      inputs: {
         type: "string",
         description: "PDB format structure string",
       },
     },
-    ["structure"],
+    ["inputs"],
   ),
   defineTool(
     "run_interproscan_fetch",
@@ -299,66 +303,66 @@ const TIER2_TOOLS: ToolDefinition[] = [
     "run_structure_metrics",
     "Compute structural quality metrics (secondary structure percentages, longest helix, gyration radius) from a PDB file. Use this to evaluate the overall quality and composition of a protein structure.",
     {
-      structure: {
+      structures: {
         type: "string",
         description: "PDB format structure string",
       },
     },
-    ["structure"],
+    ["structures"],
   ),
   defineTool(
     "run_viennarna_prediction",
     "Predict RNA secondary structure using ViennaRNA MFE (minimum free energy) folding. Returns the MFE structure in dot-bracket notation and the free energy. Use this when analyzing RNA folding effects of a variant.",
     {
-      sequence: {
-        type: "string",
-        description: "RNA sequence (DNA will be converted: T→U). At least 50bp recommended.",
+      sequences: {
+        type: "array",
+        description: "Array of RNA sequences (DNA will be converted: T→U). At least 50bp recommended.",
+        items: { type: "string" },
       },
     },
-    ["sequence"],
+    ["sequences"],
   ),
   defineTool(
     "run_blast_search",
     "Search for homologous sequences using BLAST against NCBI databases. Returns hits with E-values, percent identity, and alignments. Use this when looking for similar proteins or genes in other organisms.",
     {
-      sequence: {
+      query: {
         type: "string",
-        description: "Query sequence (protein or DNA)",
+        description: "Query sequence (protein or DNA) or path to a FASTA file",
       },
       program: {
         type: "string",
-        enum: ["blastp", "blastn", "tblastn"],
-        description: "BLAST program. Default: blastp (protein query vs protein db)",
+        enum: ["blastp", "blastn", "blastx", "tblastn", "tblastx"],
+        description: "BLAST program. Default: blastn",
       },
       database: {
         type: "string",
-        description: "Database to search (e.g. 'nr', 'refseq_protein', 'swissprot'). Default: nr",
+        enum: ["nt", "nr", "refseq_rna", "refseq_protein", "swissprot", "pdb"],
+        description: "NCBI database to search (online mode). Default: nt",
       },
     },
-    ["sequence"],
+    ["query"],
   ),
   defineTool(
     "run_mmseqs2_search_proteins",
     "Fast protein sequence search using MMseqs2. Faster than BLAST with similar sensitivity. Returns per-sequence results with E-values and alignment info. Use this for rapid homology detection.",
     {
-      sequence: {
-        type: "string",
-        description: "Protein query sequence",
-      },
-      database: {
-        type: "string",
-        description: "MMseqs2 database path or name. Default: uniref50",
+      query_sequences: {
+        type: "array",
+        description: "Array of protein query sequences to search",
+        items: { type: "string" },
       },
     },
-    ["sequence"],
+    ["query_sequences"],
   ),
   defineTool(
     "run_mafft_align",
     "Multiple sequence alignment using MAFFT (Multiple Alignment using Fast Fourier Transform). Returns aligned sequences. Use this when aligning homologous sequences for conservation analysis.",
     {
       sequences: {
-        type: "string",
-        description: "Sequences in FASTA format (e.g. '>seq1\\nMKTI...\\n>seq2\\nMVLSP...')",
+        type: "array",
+        description: "Array of sequences to align (minimum 2 required)",
+        items: { type: "string" },
       },
     },
     ["sequences"],
@@ -377,6 +381,18 @@ const TIER2_TOOLS: ToolDefinition[] = [
       },
     },
     ["structure"],
+  ),
+  defineTool(
+    "run_segmasker_score",
+    "Detect low-complexity regions in protein sequences using NCBI segmasker. Returns per-sequence low-complexity fractions and counts. Use this to identify compositionally biased regions before homology searches.",
+    {
+      sequences: {
+        type: "array",
+        description: "Array of protein sequences to analyze for low-complexity regions",
+        items: { type: "string" },
+      },
+    },
+    ["sequences"],
   ),
 ];
 

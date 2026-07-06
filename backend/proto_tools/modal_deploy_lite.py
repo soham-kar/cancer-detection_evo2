@@ -283,14 +283,14 @@ def _register_tools():
     # the entire container — the tool just won't be available.
     try:
         from proto_tools.tools.structure_prediction.viennarna import (
-            ViennaRNAPredictionInput,
-            ViennaRNAPredictionConfig,
-            run_viennarna_prediction,
+            ViennaRNAInput,
+            ViennaRNAConfig,
+            run_viennarna,
         )
         TOOL_REGISTRY["viennarna_prediction"] = {
-            "run": run_viennarna_prediction,
-            "input_class": ViennaRNAPredictionInput,
-            "config_class": ViennaRNAPredictionConfig,
+            "run": run_viennarna,
+            "input_class": ViennaRNAInput,
+            "config_class": ViennaRNAConfig,
         }
         print("[proto-tools-lite] Registered viennarna_prediction")
     except Exception as e:
@@ -298,14 +298,14 @@ def _register_tools():
 
     try:
         from proto_tools.tools.sequence_alignment.blast import (
-            BLASTSearchInput,
-            BLASTSearchConfig,
+            BlastSearchInput,
+            BlastSearchConfig,
             run_blast_search,
         )
         TOOL_REGISTRY["blast_search"] = {
             "run": run_blast_search,
-            "input_class": BLASTSearchInput,
-            "config_class": BLASTSearchConfig,
+            "input_class": BlastSearchInput,
+            "config_class": BlastSearchConfig,
         }
         print("[proto-tools-lite] Registered blast_search")
     except Exception as e:
@@ -313,14 +313,14 @@ def _register_tools():
 
     try:
         from proto_tools.tools.sequence_alignment.mmseqs2 import (
-            MMseqs2SearchProteinsInput,
-            MMseqs2SearchProteinsConfig,
+            Mmseqs2SearchProteinsInput,
+            Mmseqs2SearchProteinsConfig,
             run_mmseqs2_search_proteins,
         )
         TOOL_REGISTRY["mmseqs2_search_proteins"] = {
             "run": run_mmseqs2_search_proteins,
-            "input_class": MMseqs2SearchProteinsInput,
-            "config_class": MMseqs2SearchProteinsConfig,
+            "input_class": Mmseqs2SearchProteinsInput,
+            "config_class": Mmseqs2SearchProteinsConfig,
         }
         print("[proto-tools-lite] Registered mmseqs2_search_proteins")
     except Exception as e:
@@ -328,14 +328,14 @@ def _register_tools():
 
     try:
         from proto_tools.tools.sequence_alignment.mafft import (
-            MAFFTAlignInput,
-            MAFFTAlignConfig,
+            MafftInput,
+            MafftConfig,
             run_mafft_align,
         )
         TOOL_REGISTRY["mafft_align"] = {
             "run": run_mafft_align,
-            "input_class": MAFFTAlignInput,
-            "config_class": MAFFTAlignConfig,
+            "input_class": MafftInput,
+            "config_class": MafftConfig,
         }
         print("[proto-tools-lite] Registered mafft_align")
     except Exception as e:
@@ -358,14 +358,14 @@ def _register_tools():
 
     try:
         from proto_tools.tools.sequence_scoring.segmasker import (
-            SegmaskerScoreInput,
-            SegmaskerScoreConfig,
-            run_segmasker_score,
+            SegmaskerInput,
+            SegmaskerConfig,
+            run_segmasker,
         )
         TOOL_REGISTRY["segmasker_score"] = {
-            "run": run_segmasker_score,
-            "input_class": SegmaskerScoreInput,
-            "config_class": SegmaskerScoreConfig,
+            "run": run_segmasker,
+            "input_class": SegmaskerInput,
+            "config_class": SegmaskerConfig,
         }
         print("[proto-tools-lite] Registered segmasker_score")
     except Exception as e:
