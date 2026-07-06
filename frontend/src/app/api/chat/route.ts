@@ -661,14 +661,22 @@ export async function POST(request: NextRequest) {
                   ],
                 } as { role: string; content: string; tool_calls?: unknown });
                 // The tool result message must include tool_call_id
+                // Truncate large results to fit within Nemotron's 1M token context
+                const MAX_TOOL_RESULT_CHARS = 50000; // ~12K tokens, safe limit
+                let toolResultStr = JSON.stringify(
+                  toolResult.status === "completed"
+                    ? toolResult.result
+                    : { error: toolResult.error },
+                );
+                if (toolResultStr.length > MAX_TOOL_RESULT_CHARS) {
+                  toolResultStr =
+                    toolResultStr.substring(0, MAX_TOOL_RESULT_CHARS) +
+                    '\n... [truncated: result was ' + toolResultStr.length + ' chars, showing first ' + MAX_TOOL_RESULT_CHARS + ']';
+                }
                 nvidiaMessages.push({
                   role: "tool",
                   tool_call_id: tc.id,
-                  content: JSON.stringify(
-                    toolResult.status === "completed"
-                      ? toolResult.result
-                      : { error: toolResult.error },
-                  ),
+                  content: toolResultStr,
                 } as { role: string; content: string; tool_call_id?: string });
               }
 
