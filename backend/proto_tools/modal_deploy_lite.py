@@ -60,7 +60,7 @@ proto_image = (
     # Install Micromamba (lightweight conda) for bioinformatics system tools
     .run_commands(
         "curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C /usr/local bin/micromamba",
-        "/usr/local/bin/micromamba create -y -n bio -c bioconda -c conda-forge viennarna blast mmseqs2 mafft foldseek",
+        "/usr/local/bin/micromamba create -y -n bio -c conda-forge -c bioconda viennarna blast mmseqs2 mafft foldseek",
         # Symlink conda env binaries to /usr/local/bin so they're on PATH
         "ln -sf /root/micromamba/envs/bio/bin/RNAfold /usr/local/bin/RNAfold 2>/dev/null || true",
         "ln -sf /root/micromamba/envs/bio/bin/blastp /usr/local/bin/blastp 2>/dev/null || true",
@@ -75,7 +75,7 @@ proto_image = (
         "MAMBA_ROOT_PREFIX": "/root/micromamba",
     })
     .pip_install("git+https://github.com/evo-design/proto-tools.git")
-    .pip_install("requests", "aiohttp", "fastapi[standard]")
+    .pip_install("requests", "aiohttp", "fastapi[standard]", "biopython")
 )
 
 # =============================================================================
@@ -228,11 +228,93 @@ def _register_tools():
         PangolinVariant,
         run_pangolin_score_variants,
     )
+    # DSSP: import only the data models; we provide a custom run function
+    # that bypasses ToolInstance (which tries to create an isolated venv).
     from proto_tools.tools.structure_scoring.dssp import (
         DSSPSecondaryStructureInput,
         DSSPSecondaryStructureConfig,
-        run_dssp_secondary_structure,
+        DSSPSecondaryStructureOutput,
+        DSSPSecondaryStructureMetrics,
+        DSSPStructureInput,
     )
+    from proto_tools.entities.structures import Structure
+
+    def _run_dssp_wrapper(inputs, config):
+        """Custom DSSP runner that calls mkdssp directly, bypassing ToolInstance."""
+        import tempfile, json, subprocess, sys
+        from pathlib import Path
+        from Bio.PDB.DSSP import DSSP
+        from Bio.PDB.PDBParser import PDBParser
+
+        results = []
+        for inp in inputs.inputs:
+            pdb_content, mmcif_to_pdb = inp.structure.to_pdb_with_chain_mapping()
+            chain_id = inp.analyzed_chain_id
+            pdb_chain_id = mmcif_to_pdb[chain_id]
+
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                tmp_path = Path(tmp_dir) / "input.pdb"
+                tmp_path.write_text(pdb_content)
+
+                parser = PDBParser(QUIET=True)
+                model = parser.get_structure("protein", str(tmp_path))[0]
+
+                if pdb_chain_id not in model:
+                    raise ValueError(f"dssp: chain {pdb_chain_id!r} not found in structure")
+
+                # Find mkdssp/dssp binary — check PATH, /usr/local/bin, and conda env
+                import shutil
+                dssp_binary = None
+                for name in ("mkdssp", "dssp"):
+                    # Check PATH first
+                    found = shutil.which(name)
+                    if found:
+                        dssp_binary = found
+                        break
+                    # Check common locations
+                    for loc in ["/usr/local/bin", "/root/micromamba/envs/bio/bin"]:
+                        candidate = Path(loc) / name
+                        if candidate.exists():
+                            dssp_binary = str(candidate)
+                            break
+                    if dssp_binary:
+                        break
+                if not dssp_binary:
+                    raise FileNotFoundError("dssp: mkdssp/dssp binary not found")
+
+                dssp = DSSP(model, str(tmp_path), dssp_binary)
+                dssp_data = list(dssp)
+
+                # Count secondary structure types
+                helix = 0
+                sheet = 0
+                loop = 0
+                total = 0
+                for row in dssp_data:
+                    ss = row[2]  # DSSP secondary structure code
+                    total += 1
+                    if ss in ("H", "G", "I"):
+                        helix += 1
+                    elif ss == "E":
+                        sheet += 1
+                    else:
+                        loop += 1
+
+                helix_pct = (helix / total * 100) if total > 0 else 0.0
+                sheet_pct = (sheet / total * 100) if total > 0 else 0.0
+                loop_pct = (loop / total * 100) if total > 0 else 0.0
+
+                results.append(DSSPSecondaryStructureMetrics(
+                    chain_id=chain_id,
+                    helix_percentage=helix_pct,
+                    sheet_percentage=sheet_pct,
+                    loop_percentage=loop_pct,
+                ))
+
+        return DSSPSecondaryStructureOutput(
+            metadata={"num_structures": len(inputs.inputs)},
+            results=results,
+        )
 
     TOOL_REGISTRY["spliceai_predict"] = {
         "run": run_spliceai_predict,
@@ -250,7 +332,7 @@ def _register_tools():
         "config_class": PangolinScoreVariantsConfig,
     }
     TOOL_REGISTRY["dssp_secondary_structure"] = {
-        "run": run_dssp_secondary_structure,
+        "run": _run_dssp_wrapper,
         "input_class": DSSPSecondaryStructureInput,
         "config_class": DSSPSecondaryStructureConfig,
     }
