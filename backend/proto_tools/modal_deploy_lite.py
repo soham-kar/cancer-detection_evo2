@@ -28,6 +28,12 @@ Tier 2 — CPU ML Tools (1–30s):
   16. dssp_secondary_structure  — Helix/sheet/loop percentages from PDB
   17. interproscan_fetch        — InterPro domain annotations (Pfam, SMART, etc.)
   18. structure_metrics         — Structure quality metrics (SS, gyration, etc.)
+  19. viennarna_prediction      — RNA secondary structure prediction (MFE)
+  20. blast_search              — BLAST sequence homology search
+  21. mmseqs2_search_proteins   — Fast protein sequence search
+  22. mafft_align               — Multiple sequence alignment
+  23. foldseek_search           — Structural homology search
+  24. segmasker_score           — Low-complexity region detection
 
 Deploy:
   modal deploy modal_deploy_lite.py
@@ -50,10 +56,26 @@ from typing import Any
 
 proto_image = (
     modal.Image.debian_slim(python_version="3.11")
-    .apt_install("git", "build-essential")
+    .apt_install("git", "build-essential", "curl", "wget", "procps")
+    # Install Micromamba (lightweight conda) for bioinformatics system tools
+    .run_commands(
+        "curl -Ls https://micro.mamba.pm/api/micromamba/linux-64/latest | tar -xvj -C /usr/local bin/micromamba",
+        "/usr/local/bin/micromamba create -y -n bio -c bioconda -c conda-forge viennarna blast mmseqs2 mafft foldseek",
+        # Symlink conda env binaries to /usr/local/bin so they're on PATH
+        "ln -sf /root/micromamba/envs/bio/bin/RNAfold /usr/local/bin/RNAfold 2>/dev/null || true",
+        "ln -sf /root/micromamba/envs/bio/bin/blastp /usr/local/bin/blastp 2>/dev/null || true",
+        "ln -sf /root/micromamba/envs/bio/bin/blastn /usr/local/bin/blastn 2>/dev/null || true",
+        "ln -sf /root/micromamba/envs/bio/bin/mmseqs /usr/local/bin/mmseqs 2>/dev/null || true",
+        "ln -sf /root/micromamba/envs/bio/bin/mafft /usr/local/bin/mafft 2>/dev/null || true",
+        "ln -sf /root/micromamba/envs/bio/bin/foldseek /usr/local/bin/foldseek 2>/dev/null || true",
+        "ln -sf /root/micromamba/envs/bio/bin/segmasker /usr/local/bin/segmasker 2>/dev/null || true",
+    )
+    .env({
+        "PROTO_HOME": "/root/.proto",
+        "MAMBA_ROOT_PREFIX": "/root/micromamba",
+    })
     .pip_install("git+https://github.com/evo-design/proto-tools.git")
     .pip_install("requests", "aiohttp", "fastapi[standard]")
-    .env({"PROTO_HOME": "/root/.proto"})
 )
 
 # =============================================================================
@@ -255,6 +277,99 @@ def _register_tools():
         "input_class": StructureMetricsInput,
         "config_class": StructureMetricsConfig,
     }
+
+    # ─── Tier 2: Tools requiring conda-installed system packages ─────
+    # These are wrapped in try/except so a missing binary doesn't crash
+    # the entire container — the tool just won't be available.
+    try:
+        from proto_tools.tools.structure_prediction.viennarna import (
+            ViennaRNAPredictionInput,
+            ViennaRNAPredictionConfig,
+            run_viennarna_prediction,
+        )
+        TOOL_REGISTRY["viennarna_prediction"] = {
+            "run": run_viennarna_prediction,
+            "input_class": ViennaRNAPredictionInput,
+            "config_class": ViennaRNAPredictionConfig,
+        }
+        print("[proto-tools-lite] Registered viennarna_prediction")
+    except Exception as e:
+        print(f"[proto-tools-lite] Skipping viennarna_prediction: {e}")
+
+    try:
+        from proto_tools.tools.sequence_alignment.blast import (
+            BLASTSearchInput,
+            BLASTSearchConfig,
+            run_blast_search,
+        )
+        TOOL_REGISTRY["blast_search"] = {
+            "run": run_blast_search,
+            "input_class": BLASTSearchInput,
+            "config_class": BLASTSearchConfig,
+        }
+        print("[proto-tools-lite] Registered blast_search")
+    except Exception as e:
+        print(f"[proto-tools-lite] Skipping blast_search: {e}")
+
+    try:
+        from proto_tools.tools.sequence_alignment.mmseqs2 import (
+            MMseqs2SearchProteinsInput,
+            MMseqs2SearchProteinsConfig,
+            run_mmseqs2_search_proteins,
+        )
+        TOOL_REGISTRY["mmseqs2_search_proteins"] = {
+            "run": run_mmseqs2_search_proteins,
+            "input_class": MMseqs2SearchProteinsInput,
+            "config_class": MMseqs2SearchProteinsConfig,
+        }
+        print("[proto-tools-lite] Registered mmseqs2_search_proteins")
+    except Exception as e:
+        print(f"[proto-tools-lite] Skipping mmseqs2_search_proteins: {e}")
+
+    try:
+        from proto_tools.tools.sequence_alignment.mafft import (
+            MAFFTAlignInput,
+            MAFFTAlignConfig,
+            run_mafft_align,
+        )
+        TOOL_REGISTRY["mafft_align"] = {
+            "run": run_mafft_align,
+            "input_class": MAFFTAlignInput,
+            "config_class": MAFFTAlignConfig,
+        }
+        print("[proto-tools-lite] Registered mafft_align")
+    except Exception as e:
+        print(f"[proto-tools-lite] Skipping mafft_align: {e}")
+
+    try:
+        from proto_tools.tools.structure_alignment.foldseek import (
+            FoldseekSearchInput,
+            FoldseekSearchConfig,
+            run_foldseek_search,
+        )
+        TOOL_REGISTRY["foldseek_search"] = {
+            "run": run_foldseek_search,
+            "input_class": FoldseekSearchInput,
+            "config_class": FoldseekSearchConfig,
+        }
+        print("[proto-tools-lite] Registered foldseek_search")
+    except Exception as e:
+        print(f"[proto-tools-lite] Skipping foldseek_search: {e}")
+
+    try:
+        from proto_tools.tools.sequence_scoring.segmasker import (
+            SegmaskerScoreInput,
+            SegmaskerScoreConfig,
+            run_segmasker_score,
+        )
+        TOOL_REGISTRY["segmasker_score"] = {
+            "run": run_segmasker_score,
+            "input_class": SegmaskerScoreInput,
+            "config_class": SegmaskerScoreConfig,
+        }
+        print("[proto-tools-lite] Registered segmasker_score")
+    except Exception as e:
+        print(f"[proto-tools-lite] Skipping segmasker_score: {e}")
 
 
 # =============================================================================

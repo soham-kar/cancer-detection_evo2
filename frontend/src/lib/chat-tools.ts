@@ -311,6 +311,78 @@ const TIER2_TOOLS: ToolDefinition[] = [
     },
     ["structure"],
   ),
+  defineTool(
+    "run_viennarna_prediction",
+    "Predict RNA secondary structure using ViennaRNA MFE (minimum free energy) folding. Returns the MFE structure in dot-bracket notation and the free energy. Use this when analyzing RNA folding effects of a variant.",
+    {
+      sequence: {
+        type: "string",
+        description: "RNA sequence (DNA will be converted: T→U). At least 50bp recommended.",
+      },
+    },
+    ["sequence"],
+  ),
+  defineTool(
+    "run_blast_search",
+    "Search for homologous sequences using BLAST against NCBI databases. Returns hits with E-values, percent identity, and alignments. Use this when looking for similar proteins or genes in other organisms.",
+    {
+      sequence: {
+        type: "string",
+        description: "Query sequence (protein or DNA)",
+      },
+      program: {
+        type: "string",
+        enum: ["blastp", "blastn", "tblastn"],
+        description: "BLAST program. Default: blastp (protein query vs protein db)",
+      },
+      database: {
+        type: "string",
+        description: "Database to search (e.g. 'nr', 'refseq_protein', 'swissprot'). Default: nr",
+      },
+    },
+    ["sequence"],
+  ),
+  defineTool(
+    "run_mmseqs2_search_proteins",
+    "Fast protein sequence search using MMseqs2. Faster than BLAST with similar sensitivity. Returns per-sequence results with E-values and alignment info. Use this for rapid homology detection.",
+    {
+      sequence: {
+        type: "string",
+        description: "Protein query sequence",
+      },
+      database: {
+        type: "string",
+        description: "MMseqs2 database path or name. Default: uniref50",
+      },
+    },
+    ["sequence"],
+  ),
+  defineTool(
+    "run_mafft_align",
+    "Multiple sequence alignment using MAFFT (Multiple Alignment using Fast Fourier Transform). Returns aligned sequences. Use this when aligning homologous sequences for conservation analysis.",
+    {
+      sequences: {
+        type: "string",
+        description: "Sequences in FASTA format (e.g. '>seq1\\nMKTI...\\n>seq2\\nMVLSP...')",
+      },
+    },
+    ["sequences"],
+  ),
+  defineTool(
+    "run_foldseek_search",
+    "Search for structurally similar proteins using Foldseek. Input is a PDB structure. Returns structurally related proteins with TM-scores. Use this when searching by 3D structure rather than sequence.",
+    {
+      structure: {
+        type: "string",
+        description: "PDB format structure string",
+      },
+      database: {
+        type: "string",
+        description: "Database (e.g. 'alphafolddb', 'pdb100'). Default: alphafolddb",
+      },
+    },
+    ["structure"],
+  ),
 ];
 
 // =============================================================================

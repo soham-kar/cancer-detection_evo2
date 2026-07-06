@@ -32,6 +32,12 @@ const TOOL_NAME_MAP: Record<string, string> = {
   run_dssp_secondary_structure: "dssp_secondary_structure",
   run_interproscan_fetch: "interproscan_fetch",
   run_structure_metrics: "structure_metrics",
+  run_viennarna_prediction: "viennarna_prediction",
+  run_blast_search: "blast_search",
+  run_mmseqs2_search_proteins: "mmseqs2_search_proteins",
+  run_mafft_align: "mafft_align",
+  run_foldseek_search: "foldseek_search",
+  run_segmasker_score: "segmasker_score",
 };
 
 // Tools that run on CPU (proto-tools-lite)

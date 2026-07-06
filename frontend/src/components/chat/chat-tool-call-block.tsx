@@ -42,6 +42,12 @@ const TOOL_LABELS: Record<string, string> = {
   run_dssp_secondary_structure: "DSSP Secondary Structure",
   run_interproscan_fetch: "InterProScan Fetch",
   run_structure_metrics: "Structure Metrics",
+  run_viennarna_prediction: "ViennaRNA Prediction",
+  run_blast_search: "BLAST Search",
+  run_mmseqs2_search_proteins: "MMseqs2 Search",
+  run_mafft_align: "MAFFT Alignment",
+  run_foldseek_search: "Foldseek Search",
+  run_segmasker_score: "Segmasker",
 };
 
 export function ChatToolCallBlock({ toolCall }: ChatToolCallBlockProps) {
