@@ -132,23 +132,23 @@ const TIER1_TOOLS: ToolDefinition[] = [
     "search_ncbi",
     "Search NCBI Entrez databases (protein, nucleotide, pubmed, clinvar). Returns matching IDs. Use this for literature or sequence searches.",
     {
-      database: {
+      db: {
         type: "string",
         enum: ["protein", "nuccore", "pubmed", "clinvar"],
-        description: "NCBI database to search",
+        description: "NCBI database to search (e.g. 'pubmed' for literature, 'protein' for sequences)",
       },
-      query: {
+      search_term: {
         type: "string",
         description: "Search query (e.g. 'BRCA1 missense variant')",
       },
     },
-    ["database", "query"],
+    ["db", "search_term"],
   ),
   defineTool(
     "fetch_ncbi_efetch",
     "Fetch FASTA records from NCBI sequence databases (protein or nucleotide) by accession or ID. Use this to retrieve actual sequences from NCBI after a search.",
     {
-      database: {
+      db: {
         type: "string",
         enum: ["protein", "nuccore"],
         description: "NCBI database: protein or nucleotide",
@@ -157,19 +157,14 @@ const TIER1_TOOLS: ToolDefinition[] = [
         type: "string",
         description: "Accession or GI number (e.g. 'NP_009225.1' for BRCA1 protein)",
       },
-      rettype: {
-        type: "string",
-        enum: ["fasta", "gb", "gp"],
-        description: "Return format. Default: fasta",
-      },
     },
-    ["database", "id"],
+    ["db", "id"],
   ),
   defineTool(
     "fetch_ncbi_esummary",
     "Retrieve record summary metadata from NCBI Entrez by ID. Returns title, organism, length, and other metadata. Use this after an NCBI search to get details about matching records.",
     {
-      database: {
+      db: {
         type: "string",
         description: "NCBI database (e.g. 'protein', 'pubmed', 'clinvar')",
       },
@@ -178,7 +173,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
         description: "Entrez UID (comma-separated for multiple, e.g. '12345,67890')",
       },
     },
-    ["database", "id"],
+    ["db", "id"],
   ),
   defineTool(
     "fetch_ensembl_lookup",
