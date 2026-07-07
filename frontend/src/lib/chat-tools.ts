@@ -399,6 +399,40 @@ const TIER2_TOOLS: ToolDefinition[] = [
 ];
 
 // =============================================================================
+// Tier 3: GPU Tools (30s–5min, available in report mode)
+// =============================================================================
+
+const TIER3_TOOLS: ToolDefinition[] = [
+  defineTool(
+    "run_esmfold_prediction",
+    "USE THIS when the user asks to predict or fold a 3D protein structure from an amino acid sequence. Do NOT use for experimental structures — use fetch_pdb_entry instead. Do NOT use for structure comparison — use run_pymol_rmsd_alignment instead. Returns predicted 3D coordinates and per-residue pLDDT confidence scores. Requires a protein sequence as input.",
+    {
+      complexes: {
+        type: "array",
+        description: "Array of protein sequences (amino acid strings) to fold. Each sequence should be ≤ 2400 residues.",
+        items: { type: "string" },
+      },
+    },
+    ["complexes"],
+  ),
+  defineTool(
+    "run_pymol_rmsd_alignment",
+    "USE THIS when the user asks to compare two 3D protein structures, calculate RMSD, or measure structural differences. Do NOT use for sequence comparison — use run_blast_search instead. Returns post-alignment RMSD in Angstroms and alignment statistics. Requires two PDB structure strings as input.",
+    {
+      target_structure: {
+        type: "string",
+        description: "Target/reference PDB structure string",
+      },
+      mobile_structure: {
+        type: "string",
+        description: "Mobile/query PDB structure string to align against the target",
+      },
+    },
+    ["target_structure", "mobile_structure"],
+  ),
+];
+
+// =============================================================================
 // Tool Selection — which tools to send to Nemotron
 // =============================================================================
 
@@ -406,19 +440,19 @@ const TIER2_TOOLS: ToolDefinition[] = [
  * Get the tools to send to Nemotron based on the chat mode.
  *
  * - General mode: only Tier 1 database retrieval tools
- * - Report mode: all tools (Tier 1 + Tier 2)
+ * - Report mode: all tools (Tier 1 + Tier 2 + Tier 3)
  */
 export function getToolsForMode(mode: "report" | "general"): ToolDefinition[] {
   if (mode === "general") {
     return TIER1_TOOLS;
   }
-  return [...TIER1_TOOLS, ...TIER2_TOOLS];
+  return [...TIER1_TOOLS, ...TIER2_TOOLS, ...TIER3_TOOLS];
 }
 
 /**
  * All available tools (for health check / debugging).
  */
-export const ALL_TOOLS: ToolDefinition[] = [...TIER1_TOOLS, ...TIER2_TOOLS];
+export const ALL_TOOLS: ToolDefinition[] = [...TIER1_TOOLS, ...TIER2_TOOLS, ...TIER3_TOOLS];
 
 /**
  * Get tool definition by name (for validation).

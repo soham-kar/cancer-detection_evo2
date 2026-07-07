@@ -9,7 +9,9 @@ const PROTO_TOOLS_LITE_URL =
   process.env.PROTO_TOOLS_LITE_URL ||
   "https://sohamkar45--helixmind-proto-lite-run-tool.modal.run";
 
-const PROTO_TOOLS_GPU_URL = process.env.PROTO_TOOLS_GPU_URL || "";
+const PROTO_TOOLS_GPU_URL =
+  process.env.PROTO_TOOLS_GPU_URL ||
+  "https://sohamkar45--helixmind-proto-gpu-run-tool.modal.run";
 
 // Mapping from Nemotron function names → Modal proto-tools keys
 // Nemotron uses descriptive names (fetch_uniprot), Modal uses proto-tools keys (uniprot_fetch)
@@ -38,18 +40,18 @@ const TOOL_NAME_MAP: Record<string, string> = {
   run_mafft_align: "mafft_align",
   run_foldseek_search: "foldseek_search",
   run_segmasker_score: "segmasker_score",
+  // GPU tools (Tier 3)
+  run_esmfold_prediction: "esmfold_prediction",
+  run_pymol_rmsd_alignment: "pymol_rmsd_alignment",
 };
 
 // Tools that run on CPU (proto-tools-lite)
 const CPU_TOOLS = new Set(Object.values(TOOL_NAME_MAP));
 
-// Tools that require GPU (proto-tools-gpu) — will be added later
+// Tools that require GPU (proto-tools-gpu)
 const GPU_TOOLS = new Set([
   "esmfold_prediction",
-  "esm2_score",
-  "esm2_embedding",
-  "alphafold2_prediction",
-  "proteinmpnn_score",
+  "pymol_rmsd_alignment",
 ]);
 
 // Tools that require device=cpu config (ML models that default to CUDA)
