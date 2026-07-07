@@ -102,6 +102,13 @@ export async function executeProtoTool(
     config = { ...config, device: "cpu" };
   }
 
+  // MMseqs2: target_sequences is a config param in proto-tools, not input.
+  // Move it from input to config if the model passed it as input.
+  if (toolKey === "mmseqs2_search_proteins" && input.target_sequences) {
+    config = { ...config, target_sequences: input.target_sequences };
+    delete input.target_sequences;
+  }
+
   // Determine endpoint
   const endpoint = GPU_TOOLS.has(toolKey)
     ? PROTO_TOOLS_GPU_URL

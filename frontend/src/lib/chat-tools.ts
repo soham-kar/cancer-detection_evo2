@@ -349,11 +349,16 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_mmseqs2_search_proteins",
-    "USE THIS when the user needs fast protein sequence search or rapid homology detection. Faster than BLAST with similar sensitivity. Do NOT use for structural homology — use run_foldseek_search instead. Returns per-sequence results with E-values and alignment info.",
+    "USE THIS when the user needs fast protein sequence search or rapid homology detection. Faster than BLAST with similar sensitivity. Do NOT use for structural homology — use run_foldseek_search instead. Pass query sequences in 'query_sequences' and target sequences in 'target_sequences'. Returns per-sequence results with E-values and alignment info.",
     {
       query_sequences: {
         type: "array",
         description: "Array of protein query sequences to search",
+        items: { type: "string" },
+      },
+      target_sequences: {
+        type: "array",
+        description: "Array of target protein sequences to search against. If not provided, a default database will be used.",
         items: { type: "string" },
       },
     },
@@ -361,11 +366,11 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_mafft_align",
-    "USE THIS when the user asks to align sequences, perform multiple sequence alignment, or compare homologous sequences for conservation analysis. Returns aligned sequences using MAFFT.",
+    "USE THIS when the user asks to align sequences, perform multiple sequence alignment, or compare homologous sequences for conservation analysis. Pass each sequence as a separate element in the 'sequences' array (do NOT comma-separate them into a single string). Returns aligned sequences using MAFFT.",
     {
       sequences: {
         type: "array",
-        description: "Array of sequences to align (minimum 2 required)",
+        description: "Array of sequences to align (minimum 2 required). Each element is one complete sequence string.",
         items: { type: "string" },
       },
     },
