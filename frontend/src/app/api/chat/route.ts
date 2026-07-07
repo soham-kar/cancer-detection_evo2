@@ -60,6 +60,9 @@ function encodeEvent(event: StreamEvent): string {
 function buildGeneralSystemPrompt(): string {
   return `You are HelixMind Chat, an expert AI assistant for clinical variant interpretation and genomic research.
 
+## CRITICAL INSTRUCTION: TOOL USAGE
+You have access to a set of bioinformatics tools (functions). Before answering any structural, sequence, or database query, you MUST review your available tool schemas. Do NOT claim a tool is unavailable until you have thoroughly checked your function list. Common tools include: fetch_uniprot, fetch_alphafold_db, fetch_alphamissense, run_ensembl_vep, search_ncbi, run_interproscan_fetch, run_foldseek_search, run_viennarna_prediction, run_blast_search, run_segmasker_score, and more. Always prefer calling a tool over guessing an answer.
+
 ## YOUR CAPABILITIES
 - Explain variant pathogenicity concepts (VUS, pathogenic, benign, likely pathogenic)
 - Interpret scores such as Evo2 delta likelihood, CADD PHRED, REVEL, and AlphaMissense
@@ -80,6 +83,7 @@ function buildGeneralSystemPrompt(): string {
 function buildSystemPrompt(report: Record<string, unknown>): string {
   // Extract all report sections for context
   const vep = report.vepAnnotation as Record<string, unknown> | null;
+  // NOTE: CRITICAL INSTRUCTION about tool usage is prepended below
   const popFreq = report.populationFrequency as Record<string, unknown> | null;
   const acmg = report.acmgEvidence as Record<string, unknown> | null;
   const lit = report.literatureContext as Record<string, unknown> | null;
@@ -93,6 +97,9 @@ function buildSystemPrompt(report: Record<string, unknown>): string {
   const ism = report.ismScanData as Record<string, unknown> | null;
 
   return `You are HelixMind Chat, an expert AI assistant for clinical variant interpretation. You have access to the complete analysis report for a genetic variant and can answer questions about any aspect of it.
+
+## CRITICAL INSTRUCTION: TOOL USAGE
+You have access to a set of bioinformatics tools (functions). Before answering any structural, sequence, or database query, you MUST review your available tool schemas. Do NOT claim a tool is unavailable until you have thoroughly checked your function list. Common tools include: fetch_uniprot, fetch_alphafold_db, fetch_alphamissense, run_ensembl_vep, search_ncbi, run_interproscan_fetch, run_foldseek_search, run_viennarna_prediction, run_blast_search, run_segmasker_score, run_mafft_align, run_mmseqs2_search_proteins, and more. Always prefer calling a tool over guessing an answer.
 
 ## YOUR CAPABILITIES
 - Explain variant pathogenicity predictions in plain language
@@ -661,13 +668,32 @@ export async function POST(request: NextRequest) {
                   ],
                 } as { role: string; content: string; tool_calls?: unknown });
                 // The tool result message must include tool_call_id
+                // Pre-filter large results before truncation to preserve the most relevant data
+                let toolResultData = toolResult.status === "completed"
+                  ? toolResult.result
+                  : { error: toolResult.error };
+
+                // AlphaMissense pre-filtering: keep only top pathogenic variants
+                if (tc.name === "fetch_alphamissense" && toolResultData) {
+                  const raw = toolResultData as Record<string, unknown>;
+                  if (raw.predictions && Array.isArray(raw.predictions)) {
+                    const preds = raw.predictions as Array<Record<string, number>>;
+                    const filtered = preds
+                      .filter((p) => (p.am_pathogenicity ?? p.score ?? 0) > 0.34)
+                      .sort((a, b) => (b.am_pathogenicity ?? b.score ?? 0) - (a.am_pathogenicity ?? a.score ?? 0))
+                      .slice(0, 50);
+                    toolResultData = {
+                      ...raw,
+                      predictions: filtered,
+                      note: `Data heavily truncated: kept top ${filtered.length} pathogenic variants (score > 0.34) out of ${preds.length} total predictions.`,
+                    };
+                    console.log(`[Chat] AlphaMissense pre-filtered: ${preds.length} → ${filtered.length} variants`);
+                  }
+                }
+
                 // Truncate large results to fit within Nemotron's 1M token context
                 const MAX_TOOL_RESULT_CHARS = 50000; // ~12K tokens, safe limit
-                let toolResultStr = JSON.stringify(
-                  toolResult.status === "completed"
-                    ? toolResult.result
-                    : { error: toolResult.error },
-                );
+                let toolResultStr = JSON.stringify(toolResultData);
                 if (toolResultStr.length > MAX_TOOL_RESULT_CHARS) {
                   toolResultStr =
                     toolResultStr.substring(0, MAX_TOOL_RESULT_CHARS) +

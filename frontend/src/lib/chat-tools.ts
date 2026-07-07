@@ -59,7 +59,7 @@ function defineTool(
 const TIER1_TOOLS: ToolDefinition[] = [
   defineTool(
     "fetch_uniprot",
-    "Fetch protein entry from UniProt by accession. Returns protein name, domains, function, disease associations, and subcellular location. Use this when you need protein context, domain information, or disease associations for a gene.",
+    "USE THIS when the user asks about protein domains, function, disease associations, or subcellular location. Do NOT use for structural analysis — use fetch_alphafold_db instead. Do NOT use for sequence retrieval — use fetch_ensembl_sequence instead. Returns protein name, domains, function, disease associations, and subcellular location for a UniProt accession.",
     {
       uniprot_id: {
         type: "string",
@@ -70,7 +70,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_alphafold_db",
-    "Fetch predicted 3D structure from AlphaFold Protein Structure Database. Returns PDB structure URL, per-residue pLDDT confidence scores, and PAE matrix. Use this when you need structural context for a protein.",
+    "USE THIS when the user asks about 3D protein structure, structural context, pLDDT confidence scores, or PAE matrix. Do NOT use for domain annotations — use run_interproscan_fetch instead. Returns predicted 3D structure from AlphaFold Protein Structure Database.",
     {
       uniprot_id: {
         type: "string",
@@ -81,7 +81,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_alphamissense",
-    "Fetch per-residue AlphaMissense pathogenicity scores from the AlphaFold DB. Returns pathogenicity scores for all possible substitutions at each residue. Use this for missense variant pathogenicity assessment.",
+    "USE THIS when the user asks about missense variant pathogenicity, clinical significance of a specific amino acid substitution, or per-residue pathogenicity scores. Do NOT use for indels, frameshifts, or non-coding variants. Returns AlphaMissense pathogenicity scores for all possible substitutions at each residue.",
     {
       uniprot_id: {
         type: "string",
@@ -92,7 +92,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_ensembl_vep",
-    "Predict variant consequences using Ensembl VEP. Returns molecular consequence, impact level, amino acid change, and transcript information. Use this when you need to annotate a variant's molecular effect.",
+    "USE THIS when the user asks to annotate a variant, determine its molecular consequence, or translate HGVS notation into protein impact. Returns molecular consequence, impact level, amino acid change, and transcript information.",
     {
       hgvs: {
         type: "string",
@@ -103,7 +103,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_ensembl_sequence",
-    "Fetch DNA/cDNA/protein sequence for an Ensembl ID. Use this when you need the reference sequence for a gene or transcript.",
+    "USE THIS when the user needs a reference DNA/cDNA/protein sequence for a gene or transcript. Do NOT use for protein domain info — use fetch_uniprot instead. Returns the nucleotide or amino acid sequence for an Ensembl ID.",
     {
       ensembl_id: {
         type: "string",
@@ -114,7 +114,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_pdb_entry",
-    "Fetch structure metadata from RCSB PDB. Returns title, experimental method, resolution. Use this when checking for experimental structures.",
+    "USE THIS when the user asks about experimental protein structures, PDB entries, or crystallographic resolution. Returns structure metadata from RCSB PDB including title, experimental method, and resolution.",
     {
       pdb_id: {
         type: "string",
@@ -125,7 +125,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "search_ncbi",
-    "Search NCBI Entrez databases (protein, nucleotide, pubmed, clinvar). Returns matching IDs. Use this for literature or sequence searches.",
+    "USE THIS when the user wants to search for literature (PubMed), protein sequences, or ClinVar records. Do NOT use to fetch full sequences — use fetch_ncbi_efetch instead. Returns matching IDs from NCBI Entrez databases.",
     {
       db: {
         type: "string",
@@ -141,7 +141,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_ncbi_efetch",
-    "Fetch FASTA records from NCBI sequence databases (protein or nucleotide) by accession or ID. Use this to retrieve actual sequences from NCBI after a search.",
+    "USE THIS when the user wants to retrieve actual FASTA sequences from NCBI after a search. Do NOT use for searching — use search_ncbi first. Returns FASTA records from NCBI protein or nucleotide databases.",
     {
       db: {
         type: "string",
@@ -157,7 +157,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_ncbi_esummary",
-    "Retrieve record summary metadata from NCBI Entrez by ID. Returns title, organism, length, and other metadata. Use this after an NCBI search to get details about matching records.",
+    "USE THIS after running search_ncbi to get metadata about matching records. Returns title, organism, length, and other summary data from NCBI Entrez.",
     {
       db: {
         type: "string",
@@ -172,7 +172,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_ensembl_lookup",
-    "Look up an Ensembl gene record by Ensembl gene ID or gene symbol. Returns chromosome, start/end position, biotype, and description. Use this when you need gene metadata or genomic coordinates.",
+    "USE THIS when the user needs gene metadata, genomic coordinates, or biotype information. Returns chromosome, start/end position, biotype, and description for an Ensembl gene ID.",
     {
       ensembl_id: {
         type: "string",
@@ -187,7 +187,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_pdb_fasta",
-    "Fetch chain sequences from RCSB PDB with protein/nucleotide classification. Use this when you need the actual amino acid or nucleotide sequence of a PDB structure entry.",
+    "USE THIS when the user needs the actual amino acid or nucleotide sequence of a PDB structure entry. Returns chain sequences from RCSB PDB with protein/nucleotide classification.",
     {
       pdb_id: {
         type: "string",
@@ -198,7 +198,7 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_pubchem",
-    "Resolve small-molecule identifiers (CID, name, SMILES, InChIKey) against PubChem. Returns canonical structure data, synonyms, and molecular formula. Use this when looking up drug compounds or small molecules.",
+    "USE THIS when the user asks about drug compounds, small molecules, or chemical structures. Do NOT use for proteins — use fetch_uniprot instead. Returns canonical structure data, synonyms, and molecular formula from PubChem.",
     {
       identifier: {
         type: "string",
@@ -219,9 +219,25 @@ const TIER1_TOOLS: ToolDefinition[] = [
 // =============================================================================
 
 const TIER2_TOOLS: ToolDefinition[] = [
+  // ── Foldseek moved to TOP of array to combat 'lost in the middle' syndrome ──
+  defineTool(
+    "run_foldseek_search",
+    "USE THIS when the user asks to search for structurally similar proteins, find structural homologs, or compare 3D structures. Input is a PDB structure string. Returns structurally related proteins with TM-scores. Do NOT use for sequence similarity — use run_blast_search instead.",
+    {
+      structure: {
+        type: "string",
+        description: "PDB format structure string",
+      },
+      database: {
+        type: "string",
+        description: "Database (e.g. 'alphafolddb', 'pdb100'). Default: alphafolddb",
+      },
+    },
+    ["structure"],
+  ),
   defineTool(
     "run_spliceai_predict",
-    "Predict per-position splice-site probabilities (acceptor/donor) from a DNA sequence using SpliceAI deep learning model. Returns per-position [neither, acceptor, donor] probabilities. Use this when you need the splice profile of a DNA sequence.",
+    "USE THIS when the user asks about splice sites, splice junctions, or splice-site probabilities from a DNA sequence. Do NOT use for tissue-specific splicing — use run_pangolin_predict instead. Returns per-position [neither, acceptor, donor] probabilities using SpliceAI deep learning model.",
     {
       sequences: {
         type: "string",
@@ -232,7 +248,7 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_pangolin_predict",
-    "Predict tissue-specific splice-site probabilities from a DNA sequence using Pangolin. Returns per-position splice probabilities across tissues. Use this when tissue-specific splicing is needed.",
+    "USE THIS when the user asks about tissue-specific splicing or splice probabilities across different tissues. Do NOT use for generic splice prediction — use run_spliceai_predict instead. Returns per-position splice probabilities across tissues using Pangolin.",
     {
       sequences: {
         type: "string",
@@ -243,7 +259,7 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_pangolin_score_variants",
-    "Score a variant for splice-altering effects using Pangolin deep learning model. Returns gain/loss scores for acceptor/donor splice sites. Delta >0.2 suggests splice disruption. Use this when the user asks about splicing effects of a specific variant. Requires the DNA sequence (>=5000bp flank on each side of the variant).",
+    "USE THIS when the user asks about splice-altering effects of a specific variant. Returns gain/loss scores for acceptor/donor splice sites. Delta >0.2 suggests splice disruption. Requires the DNA sequence (>=5000bp flank on each side of the variant).",
     {
       variants: {
         type: "array",
@@ -275,7 +291,7 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_dssp_secondary_structure",
-    "Assign secondary structure (helix/sheet/loop percentages) from a PDB structure file using DSSP. Use this when analyzing the structural composition of a protein.",
+    "USE THIS when the user asks about helix/sheet/loop percentages or secondary structure composition of a protein. Do NOT use for overall structure quality — use run_structure_metrics instead. Assigns secondary structure from a PDB structure file using DSSP.",
     {
       inputs: {
         type: "string",
@@ -286,7 +302,7 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_interproscan_fetch",
-    "Fetch InterPro domain annotations by UniProt accession (direct REST lookup) or by raw protein sequence (submit-and-scan). Returns domain hits across Pfam, SMART, PROSITE, Gene3D, Panther, and all InterPro member databases. Use this for comprehensive domain annotation when UniProt data is insufficient.",
+    "USE THIS when the user asks for comprehensive domain annotations, Pfam domains, SMART domains, or InterPro entries. Do NOT use for basic protein info — use fetch_uniprot instead. Returns domain hits across Pfam, SMART, PROSITE, Gene3D, Panther, and all InterPro member databases.",
     {
       uniprot_id: {
         type: "string",
@@ -301,7 +317,7 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_structure_metrics",
-    "Compute structural quality metrics (secondary structure percentages, longest helix, gyration radius) from a PDB file. Use this to evaluate the overall quality and composition of a protein structure.",
+    "USE THIS when the user asks about structure quality, gyration radius, longest helix, or overall structural composition. Do NOT use for secondary structure percentages — use run_dssp_secondary_structure instead. Computes structural quality metrics from a PDB file.",
     {
       structures: {
         type: "string",
@@ -311,20 +327,8 @@ const TIER2_TOOLS: ToolDefinition[] = [
     ["structures"],
   ),
   defineTool(
-    "run_viennarna_prediction",
-    "Predict RNA secondary structure using ViennaRNA MFE (minimum free energy) folding. Returns the MFE structure in dot-bracket notation and the free energy. Use this when analyzing RNA folding effects of a variant.",
-    {
-      sequences: {
-        type: "array",
-        description: "Array of RNA sequences (DNA will be converted: T→U). At least 50bp recommended.",
-        items: { type: "string" },
-      },
-    },
-    ["sequences"],
-  ),
-  defineTool(
     "run_blast_search",
-    "Search for homologous sequences using BLAST against NCBI databases. Returns hits with E-values, percent identity, and alignments. Use this when looking for similar proteins or genes in other organisms.",
+    "USE THIS when the user asks to search for homologous sequences, find similar proteins or genes in other organisms, or run BLAST. Returns hits with E-values, percent identity, and alignments. Do NOT use for structural similarity — use run_foldseek_search instead.",
     {
       query: {
         type: "string",
@@ -345,7 +349,7 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_mmseqs2_search_proteins",
-    "Fast protein sequence search using MMseqs2. Faster than BLAST with similar sensitivity. Returns per-sequence results with E-values and alignment info. Use this for rapid homology detection.",
+    "USE THIS when the user needs fast protein sequence search or rapid homology detection. Faster than BLAST with similar sensitivity. Do NOT use for structural homology — use run_foldseek_search instead. Returns per-sequence results with E-values and alignment info.",
     {
       query_sequences: {
         type: "array",
@@ -357,7 +361,7 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_mafft_align",
-    "Multiple sequence alignment using MAFFT (Multiple Alignment using Fast Fourier Transform). Returns aligned sequences. Use this when aligning homologous sequences for conservation analysis.",
+    "USE THIS when the user asks to align sequences, perform multiple sequence alignment, or compare homologous sequences for conservation analysis. Returns aligned sequences using MAFFT.",
     {
       sequences: {
         type: "array",
@@ -368,27 +372,25 @@ const TIER2_TOOLS: ToolDefinition[] = [
     ["sequences"],
   ),
   defineTool(
-    "run_foldseek_search",
-    "Search for structurally similar proteins using Foldseek. Input is a PDB structure. Returns structurally related proteins with TM-scores. Use this when searching by 3D structure rather than sequence.",
-    {
-      structure: {
-        type: "string",
-        description: "PDB format structure string",
-      },
-      database: {
-        type: "string",
-        description: "Database (e.g. 'alphafolddb', 'pdb100'). Default: alphafolddb",
-      },
-    },
-    ["structure"],
-  ),
-  defineTool(
     "run_segmasker_score",
-    "Detect low-complexity regions in protein sequences using NCBI segmasker. Returns per-sequence low-complexity fractions and counts. Use this to identify compositionally biased regions before homology searches.",
+    "USE THIS when the user asks about low-complexity regions, compositionally biased sequences, or SEG masking before homology searches. Returns per-sequence low-complexity fractions and counts.",
     {
       sequences: {
         type: "array",
         description: "Array of protein sequences to analyze for low-complexity regions",
+        items: { type: "string" },
+      },
+    },
+    ["sequences"],
+  ),
+  // ── ViennaRNA moved to BOTTOM of array to combat 'lost in the middle' syndrome ──
+  defineTool(
+    "run_viennarna_prediction",
+    "USE THIS when the user asks about RNA secondary structure, RNA folding, MFE (minimum free energy), or hairpin/stem-loop prediction. Do NOT use for protein structure — use fetch_alphafold_db instead. Returns the MFE structure in dot-bracket notation and the free energy.",
+    {
+      sequences: {
+        type: "array",
+        description: "Array of RNA sequences (DNA will be converted: T→U). At least 50bp recommended.",
         items: { type: "string" },
       },
     },
