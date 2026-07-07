@@ -43,6 +43,7 @@ const TOOL_NAME_MAP: Record<string, string> = {
   // GPU tools (Tier 3)
   run_esmfold_prediction: "esmfold_prediction",
   run_pymol_rmsd_alignment: "pymol_rmsd_alignment",
+  run_boltz2_affinity: "boltz2_affinity",
 };
 
 // Tools that run on CPU (proto-tools-lite)
@@ -52,6 +53,7 @@ const CPU_TOOLS = new Set(Object.values(TOOL_NAME_MAP));
 const GPU_TOOLS = new Set([
   "esmfold_prediction",
   "pymol_rmsd_alignment",
+  "boltz2_affinity",
 ]);
 
 // Tools that require device=cpu config (ML models that default to CUDA)

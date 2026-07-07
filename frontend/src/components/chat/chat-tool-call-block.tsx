@@ -50,6 +50,7 @@ const TOOL_LABELS: Record<string, string> = {
   run_segmasker_score: "Segmasker",
   run_esmfold_prediction: "ESMFold Prediction",
   run_pymol_rmsd_alignment: "PyMOL RMSD Alignment",
+  run_boltz2_affinity: "Boltz2 Affinity",
 };
 
 export function ChatToolCallBlock({ toolCall }: ChatToolCallBlockProps) {

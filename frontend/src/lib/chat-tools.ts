@@ -430,6 +430,18 @@ const TIER3_TOOLS: ToolDefinition[] = [
     },
     ["target_structure", "mobile_structure"],
   ),
+  defineTool(
+    "run_boltz2_affinity",
+    "USE THIS when the user asks to screen small-molecule drugs against a protein target, predict binding affinity, or rank candidate ligands. Do NOT use for protein-protein interactions. Input is a list of complexes, each containing a protein sequence and a ligand SMILES string. Returns predicted binding affinity (log10 IC50 μM) and binder probability per complex.",
+    {
+      complexes: {
+        type: "array",
+        description: "Array of complexes. Each complex is an array containing a protein sequence (string) and a ligand SMILES string (e.g. [\"MVLSPADKTN\", \"CC(=O)Oc1ccccc1C(=O)O\"])",
+        items: { type: "array", items: { type: "string" } },
+      },
+    },
+    ["complexes"],
+  ),
 ];
 
 // =============================================================================

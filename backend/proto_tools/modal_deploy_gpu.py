@@ -75,6 +75,11 @@ def _register_tools():
         PyMOLRMSDConfig,
         run_pymol_rmsd_alignment,
     )
+    from proto_tools.tools.structure_prediction.boltz2 import (
+        Boltz2AffinityInput,
+        Boltz2AffinityConfig,
+        run_boltz2_affinity,
+    )
 
     TOOL_REGISTRY["esmfold_prediction"] = {
         "run": run_esmfold,
@@ -85,6 +90,11 @@ def _register_tools():
         "run": run_pymol_rmsd_alignment,
         "input_class": PyMOLRMSDInput,
         "config_class": PyMOLRMSDConfig,
+    }
+    TOOL_REGISTRY["boltz2_affinity"] = {
+        "run": run_boltz2_affinity,
+        "input_class": Boltz2AffinityInput,
+        "config_class": Boltz2AffinityConfig,
     }
 
 
@@ -109,7 +119,7 @@ def _serialize_output(output: Any) -> dict:
 
 @app.function(
     gpu="A10g",
-    memory=16384,
+    memory=24576,
     timeout=600,
     min_containers=0,
 )
