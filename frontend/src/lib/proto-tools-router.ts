@@ -44,6 +44,8 @@ const TOOL_NAME_MAP: Record<string, string> = {
   run_esmfold_prediction: "esmfold_prediction",
   run_pymol_rmsd_alignment: "pymol_rmsd_alignment",
   run_boltz2_affinity: "boltz2_affinity",
+  run_esm2_score: "esm2_score",
+  run_proteinmpnn_sample: "proteinmpnn_sample",
 };
 
 // Tools that run on CPU (proto-tools-lite)
@@ -54,6 +56,8 @@ const GPU_TOOLS = new Set([
   "esmfold_prediction",
   "pymol_rmsd_alignment",
   "boltz2_affinity",
+  "esm2_score",
+  "proteinmpnn_sample",
 ]);
 
 // Tools that require device=cpu config (ML models that default to CUDA)

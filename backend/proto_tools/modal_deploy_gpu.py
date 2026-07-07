@@ -80,6 +80,16 @@ def _register_tools():
         Boltz2AffinityConfig,
         run_boltz2_affinity,
     )
+    from proto_tools.tools.masked_models.esm2 import (
+        ESM2ScoringInput,
+        ESM2ScoringConfig,
+        run_esm2_score,
+    )
+    from proto_tools.tools.inverse_folding.proteinmpnn import (
+        ProteinMPNNSampleInput,
+        ProteinMPNNSampleConfig,
+        run_proteinmpnn_sample,
+    )
 
     TOOL_REGISTRY["esmfold_prediction"] = {
         "run": run_esmfold,
@@ -95,6 +105,16 @@ def _register_tools():
         "run": run_boltz2_affinity,
         "input_class": Boltz2AffinityInput,
         "config_class": Boltz2AffinityConfig,
+    }
+    TOOL_REGISTRY["esm2_score"] = {
+        "run": run_esm2_score,
+        "input_class": ESM2ScoringInput,
+        "config_class": ESM2ScoringConfig,
+    }
+    TOOL_REGISTRY["proteinmpnn_sample"] = {
+        "run": run_proteinmpnn_sample,
+        "input_class": ProteinMPNNSampleInput,
+        "config_class": ProteinMPNNSampleConfig,
     }
 
 

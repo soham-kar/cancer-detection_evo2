@@ -442,6 +442,38 @@ const TIER3_TOOLS: ToolDefinition[] = [
     },
     ["complexes"],
   ),
+  defineTool(
+    "run_esm2_score",
+    "USE THIS when the user asks to score protein sequences for evolutionary fitness, compute pseudo-perplexity, or assess sequence likelihood. Do NOT use for structure prediction — use run_esmfold_prediction instead. Returns per-sequence pseudo-perplexity and log-likelihood scores from ESM2 language model.",
+    {
+      sequences: {
+        type: "array",
+        description: "Array of protein sequences to score (each ≤ 1022 residues)",
+        items: { type: "string" },
+      },
+    },
+    ["sequences"],
+  ),
+  defineTool(
+    "run_proteinmpnn_sample",
+    "USE THIS when the user asks to design new protein sequences for a given 3D structure, perform inverse folding, or generate sequences that fold into a target backbone. Do NOT use for structure prediction — use run_esmfold_prediction instead. Returns designed sequences with perplexity and sequence recovery metrics.",
+    {
+      inputs: {
+        type: "array",
+        description: "Array of structure inputs. Each contains a PDB structure string and optional chain selections.",
+        items: {
+          type: "object",
+          properties: {
+            structure: {
+              type: "string",
+              description: "PDB format structure string",
+            },
+          },
+        },
+      },
+    },
+    ["inputs"],
+  ),
 ];
 
 // =============================================================================
