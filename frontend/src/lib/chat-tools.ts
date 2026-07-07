@@ -474,6 +474,36 @@ const TIER3_TOOLS: ToolDefinition[] = [
     },
     ["inputs"],
   ),
+  defineTool(
+    "run_proteinmpnn_score",
+    "USE THIS when the user asks to evaluate or score a protein sequence against a 3D structure, check if a designed sequence is designable, or validate inverse folding results. Do NOT use for designing sequences — use run_proteinmpnn_sample instead. Returns structure-conditioned log-likelihood scores.",
+    {
+      sequence_structure_pairs: {
+        type: "array",
+        description: "Array of sequence-structure pairs to score. Each contains a protein sequence and a PDB structure string.",
+        items: {
+          type: "object",
+          properties: {
+            sequence: { type: "string", description: "Protein sequence to score" },
+            structure: { type: "string", description: "PDB format structure string" },
+          },
+        },
+      },
+    },
+    ["sequence_structure_pairs"],
+  ),
+  defineTool(
+    "run_boltz2_prediction",
+    "USE THIS when the user asks to predict a multi-modal complex structure (protein + ligand, protein + protein, protein + DNA/RNA) with high accuracy. Do NOT use for simple protein folding — use run_esmfold_prediction instead. Do NOT use for binding affinity only — use run_boltz2_affinity instead. Returns predicted 3D structure with confidence metrics.",
+    {
+      complexes: {
+        type: "array",
+        description: "Array of complexes. Each complex is an array of chain sequences (protein, DNA, RNA) or SMILES strings (ligands).",
+        items: { type: "array", items: { type: "string" } },
+      },
+    },
+    ["complexes"],
+  ),
 ];
 
 // =============================================================================

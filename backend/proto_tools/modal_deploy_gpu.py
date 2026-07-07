@@ -116,6 +116,16 @@ def _register_tools():
         "input_class": ProteinMPNNSampleInput,
         "config_class": ProteinMPNNSampleConfig,
     }
+    TOOL_REGISTRY["proteinmpnn_score"] = {
+        "run": run_proteinmpnn_score,
+        "input_class": ProteinMPNNScoringInput,
+        "config_class": ProteinMPNNScoringConfig,
+    }
+    TOOL_REGISTRY["boltz2_prediction"] = {
+        "run": run_boltz2,
+        "input_class": Boltz2Input,
+        "config_class": Boltz2Config,
+    }
 
 
 # =============================================================================

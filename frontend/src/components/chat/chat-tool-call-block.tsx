@@ -53,6 +53,8 @@ const TOOL_LABELS: Record<string, string> = {
   run_boltz2_affinity: "Boltz2 Affinity",
   run_esm2_score: "ESM2 Scoring",
   run_proteinmpnn_sample: "ProteinMPNN Design",
+  run_proteinmpnn_score: "ProteinMPNN Score",
+  run_boltz2_prediction: "Boltz2 Structure",
 };
 
 export function ChatToolCallBlock({ toolCall }: ChatToolCallBlockProps) {
