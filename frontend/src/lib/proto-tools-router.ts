@@ -104,8 +104,23 @@ export async function executeProtoTool(
 
   // MMseqs2: target_sequences is a config param in proto-tools, not input.
   // Move it from input to config if the model passed it as input.
+  // Also handle the case where the model passes it as a string-encoded array.
   if (toolKey === "mmseqs2_search_proteins" && input.target_sequences) {
-    config = { ...config, target_sequences: input.target_sequences };
+    let targetSeqs = input.target_sequences;
+    // If the model passed a string that looks like a JSON array, parse it
+    if (typeof targetSeqs === "string" && targetSeqs.trim().startsWith("[")) {
+      try {
+        targetSeqs = JSON.parse(targetSeqs);
+      } catch {
+        // If parsing fails, split by comma as fallback
+        targetSeqs = String(targetSeqs).replace(/[\[\]"']/g, "").split(",").map((s: string) => s.trim());
+      }
+    }
+    // Ensure it's an array
+    if (typeof targetSeqs === "string") {
+      targetSeqs = [targetSeqs];
+    }
+    config = { ...config, target_sequences: targetSeqs };
     delete input.target_sequences;
   }
 
