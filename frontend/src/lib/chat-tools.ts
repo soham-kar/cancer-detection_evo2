@@ -70,11 +70,11 @@ const TIER1_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "fetch_alphafold_db",
-    "USE THIS when the user asks about 3D protein structure, structural context, pLDDT confidence scores, or PAE matrix. Do NOT use for domain annotations — use run_interproscan_fetch instead. Returns predicted 3D structure from AlphaFold Protein Structure Database.",
+    "USE THIS when the user asks to view, show, render, or see the 3D protein structure inside this chat window. CRITICAL: Even if the structure is already visible in the main report panel, you MUST call this tool to generate the interactive 3D viewer directly in this conversation. Do NOT tell the user to look elsewhere on the page — you must call this tool to render it in the chat. You can pass either a UniProt accession (e.g. P38398) OR a gene symbol (e.g. BRCA1) — the backend will automatically resolve gene symbols to UniProt accessions. DO NOT USE if you need to predict the structure of a MUTANT sequence — use run_esmfold_prediction instead. Returns predicted 3D structure metadata and pLDDT confidence scores from AlphaFold Protein Structure Database.",
     {
       uniprot_id: {
         type: "string",
-        description: "UniProt accession (e.g. P38398)",
+        description: "UniProt accession (e.g. P38398) or gene symbol (e.g. BRCA1). The backend will resolve gene symbols automatically.",
       },
     },
     ["uniprot_id"],
@@ -328,11 +328,11 @@ const TIER2_TOOLS: ToolDefinition[] = [
   ),
   defineTool(
     "run_blast_search",
-    "USE THIS when the user asks to search for homologous sequences, find similar proteins or genes in other organisms, or run BLAST. Returns hits with E-values, percent identity, and alignments. Do NOT use for structural similarity — use run_foldseek_search instead.",
+    "USE THIS to find homologous sequences in other organisms or search for similar proteins/genes. PREREQUISITE: You must have the raw amino acid or nucleotide sequence. If you only have a UniProt ID, call fetch_uniprot first to get the sequence, then call this tool. Do NOT pass a UniProt ID directly to this tool — pass the actual sequence. Do NOT use for structural similarity — use run_foldseek_search instead.",
     {
       query: {
         type: "string",
-        description: "Query sequence (protein or DNA) or path to a FASTA file",
+        description: "Query sequence (protein or DNA) — must be the actual sequence string, NOT a UniProt ID",
       },
       program: {
         type: "string",
@@ -410,11 +410,11 @@ const TIER2_TOOLS: ToolDefinition[] = [
 const TIER3_TOOLS: ToolDefinition[] = [
   defineTool(
     "run_esmfold_prediction",
-    "USE THIS when the user asks to predict or fold a 3D protein structure from an amino acid sequence. Do NOT use for experimental structures — use fetch_pdb_entry instead. Do NOT use for structure comparison — use run_pymol_rmsd_alignment instead. Returns predicted 3D coordinates and per-residue pLDDT confidence scores. Requires a protein sequence as input.",
+    "USE THIS when the user asks to predict or fold a 3D protein structure from an amino acid sequence. Do NOT use for experimental structures — use fetch_pdb_entry instead. Do NOT use for structure comparison — use run_pymol_rmsd_alignment instead. PREREQUISITE: You must have the raw amino acid sequence. If you only have a gene symbol or UniProt ID, pass it as the gene_symbol and the backend will fetch the sequence automatically. Returns predicted 3D coordinates and per-residue pLDDT confidence scores.",
     {
       complexes: {
         type: "array",
-        description: "Array of protein sequences (amino acid strings) to fold. Each sequence should be ≤ 2400 residues.",
+        description: "Array of protein sequences (amino acid strings) to fold. Each sequence should be ≤ 2400 residues. If you only have a gene symbol, pass it as a string here and the backend will resolve it.",
         items: { type: "string" },
       },
     },
@@ -435,25 +435,17 @@ const TIER3_TOOLS: ToolDefinition[] = [
     },
     ["target_structure", "mobile_structure"],
   ),
-  defineTool(
-    "run_boltz2_affinity",
-    "USE THIS when the user asks to screen small-molecule drugs against a protein target, predict binding affinity, or rank candidate ligands. Do NOT use for protein-protein interactions. Input is a list of complexes, each containing a protein sequence and a ligand SMILES string. Returns predicted binding affinity (log10 IC50 μM) and binder probability per complex.",
-    {
-      complexes: {
-        type: "array",
-        description: "Array of complexes. Each complex is an array containing a protein sequence (string) and a ligand SMILES string (e.g. [\"MVLSPADKTN\", \"CC(=O)Oc1ccccc1C(=O)O\"])",
-        items: { type: "array", items: { type: "string" } },
-      },
-    },
-    ["complexes"],
-  ),
+  // NOTE: run_boltz2_affinity is retired from the chatbot UI. It takes 10+ minutes
+  // (structure prediction via diffusion, not docking). For drug-target queries, use
+  // fetch_pdb_entry to look up experimentally determined co-crystal structures instead.
+  // Boltz2 remains in the GPU container for batch/background jobs only.
   defineTool(
     "run_esm2_score",
-    "USE THIS when the user asks to score protein sequences for evolutionary fitness, compute pseudo-perplexity, or assess sequence likelihood. Do NOT use for structure prediction — use run_esmfold_prediction instead. Returns per-sequence pseudo-perplexity and log-likelihood scores from ESM2 language model.",
+    "USE THIS when the user asks to score protein sequences for evolutionary fitness, compute pseudo-perplexity, or assess sequence likelihood. Do NOT use for structure prediction — use run_esmfold_prediction instead. PREREQUISITE: You must have the raw amino acid sequence. If you only have a UniProt ID, pass it in the sequences array and the backend will fetch the sequence automatically. Returns per-sequence pseudo-perplexity and log-likelihood scores from ESM2 language model.",
     {
       sequences: {
         type: "array",
-        description: "Array of protein sequences to score (each ≤ 1022 residues)",
+        description: "Array of protein sequences to score (each ≤ 1022 residues). If you only have a UniProt ID, pass it here and the backend will resolve it.",
         items: { type: "string" },
       },
     },
@@ -497,18 +489,7 @@ const TIER3_TOOLS: ToolDefinition[] = [
     },
     ["sequence_structure_pairs"],
   ),
-  defineTool(
-    "run_boltz2_prediction",
-    "USE THIS when the user asks to predict a multi-modal complex structure (protein + ligand, protein + protein, protein + DNA/RNA) with high accuracy. Do NOT use for simple protein folding — use run_esmfold_prediction instead. Do NOT use for binding affinity only — use run_boltz2_affinity instead. Returns predicted 3D structure with confidence metrics.",
-    {
-      complexes: {
-        type: "array",
-        description: "Array of complexes. Each complex is an array of chain sequences (protein, DNA, RNA) or SMILES strings (ligands).",
-        items: { type: "array", items: { type: "string" } },
-      },
-    },
-    ["complexes"],
-  ),
+  // NOTE: run_boltz2_prediction is also retired from the chatbot UI for the same reason.
 ];
 
 // =============================================================================
