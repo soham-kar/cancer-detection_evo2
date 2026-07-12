@@ -24,6 +24,328 @@ import { currentUser } from "@clerk/nextjs/server";
 import { db } from "~/lib/db";
 import { getToolsForMode } from "~/lib/chat-tools";
 import { executeProtoTool } from "~/lib/proto-tools-router";
+import { sanitizeToolResponse } from "~/lib/tool-response-sanitizer";
+
+// =============================================================================
+// Dynamic Tool Budget Calculator (Fix 2)
+// =============================================================================
+// Replaces hardcoded MAX_TOOL_CALLS = 3 with query-aware budgeting.
+// Complex mechanistic questions (docking, structure prediction) need more
+// tool calls than simple lookups.
+// =============================================================================
+
+function calculateToolBudget(query: string, mode: string): number {
+  if (mode === "general") return 2; // General mode rarely needs deep ML tools
+
+  const q = query.toLowerCase();
+
+  // Deep mechanistic questions need more budget
+  if (/docking|bind|affinity|resistance|inhibitor|drug/.test(q)) return 6;
+  if (/predict.*structure|esmfold|mutant.*structure|rmsd|fold/.test(q)) return 5;
+  if (/splic|exon.*skip|cryptic|splice/.test(q)) return 4;
+  if (/homolog|blast|align|mafft|conserv|mmseqs/.test(q)) return 4;
+  if (/design|inverse.*fold|proteinmpnn/.test(q)) return 5;
+
+  // Simple lookups or report clarifications
+  if (/what is|tell me about|explain.*report|why.*classified|summarize/.test(q)) return 2;
+
+  // Default safe budget for standard variant questions
+  return 4;
+}
+
+// =============================================================================
+// Smart Input Resolver (Fix 3)
+// =============================================================================
+// Intercepts tool calls BEFORE they go to Modal. If a tool is missing a
+// prerequisite (e.g., ESMFold needs a sequence but only got a gene symbol),
+// fetch the prerequisite silently in the background without consuming a
+// Nemotron tool-call iteration.
+// =============================================================================
+
+// =============================================================================
+// Known Drug-Target Co-Crystal Structures (experimentally determined)
+// =============================================================================
+// Instead of running 10-minute Boltz2 diffusion predictions, look up experimentally
+// determined PDB co-crystal structures for famous drug-target pairs. These are
+// X-ray crystallography structures with sub-2Å resolution — far better than any
+// computational prediction. The 3D viewer renders them instantly.
+
+const KNOWN_COCRYSTALS: Record<string, { pdb_id: string; drug: string; target: string; ic50_nM?: number; binding_type: string; mechanism?: string }> = {
+  // --- Kinase Inhibitors ---
+  "ABL1_IMATINIB": { pdb_id: "1IEP", drug: "Imatinib", target: "ABL1 kinase", ic50_nM: 0.6, binding_type: "Type II inhibitor (DFG-out)" },
+  "ABL1_DASATINIB": { pdb_id: "2GQG", drug: "Dasatinib", target: "ABL1 kinase", ic50_nM: 0.8, binding_type: "Type I inhibitor (active conformation)" },
+  "ABL1_NILOTINIB": { pdb_id: "3CS9", drug: "Nilotinib", target: "ABL1 kinase", ic50_nM: 20, binding_type: "Type II inhibitor (DFG-out)" },
+  "EGFR_ERLOTINIB": { pdb_id: "1M17", drug: "Erlotinib", target: "EGFR kinase", ic50_nM: 2.1, binding_type: "Type I inhibitor" },
+  "EGFR_GEFITINIB": { pdb_id: "2ITY", drug: "Gefitinib", target: "EGFR kinase", ic50_nM: 23, binding_type: "Type I inhibitor" },
+  "EGFR_OSIMERTINIB": { pdb_id: "4ZAU", drug: "Osimertinib", target: "EGFR kinase", ic50_nM: 12, binding_type: "Type I inhibitor (mutant-selective)" },
+  "BRAF_VEMURAFENIB": { pdb_id: "3OG7", drug: "Vemurafenib", target: "BRAF V600E", ic50_nM: 31, binding_type: "Type I inhibitor" },
+  "CDK4_PALBOCICLIB": { pdb_id: "2EUF", drug: "Palbociclib", target: "CDK4", ic50_nM: 11, binding_type: "Type I inhibitor" },
+  "KIT_IMATINIB": { pdb_id: "1T46", drug: "Imatinib", target: "KIT kinase", ic50_nM: 100, binding_type: "Type II inhibitor" },
+  "PDGFR_IMATINIB": { pdb_id: "6GJN", drug: "Imatinib", target: "PDGFRα", ic50_nM: 100, binding_type: "Type II inhibitor" },
+  "VEGFR2_SUNITINIB": { pdb_id: "4AGD", drug: "Sunitinib", target: "VEGFR2", ic50_nM: 10, binding_type: "Type I inhibitor" },
+  "ALK_CRIZOTINIB": { pdb_id: "2XP2", drug: "Crizotinib", target: "ALK kinase", ic50_nM: 24, binding_type: "Type I inhibitor" },
+  "BCL2_VENETOCLAX": { pdb_id: "6O0K", drug: "Venetoclax", target: "BCL2", ic50_nM: 0.01, binding_type: "BH3 mimetic" },
+  "IDH2_ENASIDENIB": { pdb_id: "5X08", drug: "Enasidenib", target: "IDH2 R140Q", ic50_nM: 100, binding_type: "Allosteric inhibitor" },
+
+  // --- PARP Inhibitors (Synthetic Lethality for BRCA1/2 mutations) ---
+  "PARP1_OLAPARIB": { pdb_id: "5DS3", drug: "Olaparib (Lynparza)", target: "PARP1 (DNA repair enzyme)", ic50_nM: 5.0, binding_type: "PARP1/2 Trapper", mechanism: "Synthetic Lethal for BRCA1/2 mutants — traps PARP1 on DNA, causing double-strand breaks that BRCA-deficient cells cannot repair" },
+  "PARP1_RUCAPARIB": { pdb_id: "4R6E", drug: "Rucaparib (Rubraca)", target: "PARP1/2", ic50_nM: 1.4, binding_type: "PARP1/2 Inhibitor", mechanism: "Synthetic Lethal for BRCA1/2 mutants" },
+  "PARP1_NIRAPARIB": { pdb_id: "6W0O", drug: "Niraparib (Zejula)", target: "PARP1/2", ic50_nM: 2.0, binding_type: "PARP1/2 Trapper", mechanism: "Synthetic Lethal for BRCA1/2 mutants" },
+  "PARP1_TALAZOPARIB": { pdb_id: "7KKK", drug: "Talazoparib (Talzenna)", target: "PARP1/2", ic50_nM: 0.57, binding_type: "PARP1/2 Trapper", mechanism: "Synthetic Lethal for BRCA1/2 mutants — most potent PARP trapper" },
+
+  // --- Brand-name aliases ---
+  "LYNPARZA": { pdb_id: "5DS3", drug: "Olaparib (Lynparza)", target: "PARP1", ic50_nM: 5.0, binding_type: "PARP1/2 Trapper", mechanism: "Synthetic Lethal for BRCA1/2 mutants" },
+  "RUBRACA": { pdb_id: "4R6E", drug: "Rucaparib (Rubraca)", target: "PARP1/2", ic50_nM: 1.4, binding_type: "PARP1/2 Inhibitor", mechanism: "Synthetic Lethal for BRCA1/2 mutants" },
+  "ZEJULA": { pdb_id: "6W0O", drug: "Niraparib (Zejula)", target: "PARP1/2", ic50_nM: 2.0, binding_type: "PARP1/2 Trapper", mechanism: "Synthetic Lethal for BRCA1/2 mutants" },
+  "TALZENNA": { pdb_id: "7KKK", drug: "Talazoparib (Talzenna)", target: "PARP1/2", ic50_nM: 0.57, binding_type: "PARP1/2 Trapper", mechanism: "Synthetic Lethal for BRCA1/2 mutants" },
+};
+
+/**
+ * Check if a user's query matches a known drug-target co-crystal structure.
+ * Returns the PDB ID and experimental data if found, null otherwise.
+ * Also handles Synthetic Lethality: BRCA1/BRCA2 queries map to PARP1 inhibitors.
+ */
+function lookupKnownCocrystal(userMessage: string): { pdb_id: string; drug: string; target: string; ic50_nM?: number; binding_type: string; mechanism?: string } | null {
+  const msg = userMessage.toUpperCase().replace(/[^A-Z0-9 ]/g, "");
+  const lowerMsg = userMessage.toLowerCase();
+
+  // ── BLOCK LIST: Negative keywords that should prevent interception ──
+  // If any of these appear, let Nemotron handle the query with proper nuance
+  const negativeKeywords = [
+    "synonymous", "non-coding", "non coding", "utr", "5'utr", "3'utr",
+    "ring domain", "brct domain", "coiled-coil", "scye domain",
+    "specifically target", "binds to brca1 directly",
+    "target the", "targeting the",
+    "vus", "benign", "not pathogenic", "uncertain significance",
+    "tp53", "p53",
+  ];
+  const isBlocked = negativeKeywords.some(keyword => lowerMsg.includes(keyword));
+
+  // ── Synthetic Lethality: BRCA1/BRCA2 → PARP1 inhibitors ──
+  // When a user asks for a drug for BRCA1/BRCA2, map to PARP1 (Olaparib by default)
+  // But only if the query is NOT blocked by negative keywords
+  const brcaMatch = msg.includes("BRCA1") || msg.includes("BRCA2") || msg.includes("BRCA");
+  const drugMatch = msg.includes("DRUG") || msg.includes("SUGGEST") || msg.includes("THERAPY") || msg.includes("TREAT") || msg.includes("INHIBITOR") || msg.includes("MEDICINE") || msg.includes("TARGETED");
+  if (brcaMatch && drugMatch && !isBlocked) {
+    // Check if user named a specific PARP inhibitor
+    if (msg.includes("RUCAPARIB") || msg.includes("RUBRACA")) return KNOWN_COCRYSTALS["PARP1_RUCAPARIB"];
+    if (msg.includes("NIRAPARIB") || msg.includes("ZEJULA")) return KNOWN_COCRYSTALS["PARP1_NIRAPARIB"];
+    if (msg.includes("TALAZOPARIB") || msg.includes("TALZENNA")) return KNOWN_COCRYSTALS["PARP1_TALAZOPARIB"];
+    // Default: Olaparib (most commonly prescribed)
+    return KNOWN_COCRYSTALS["PARP1_OLAPARIB"];
+  }
+
+  // ── Direct drug-target matching ──
+  for (const [key, value] of Object.entries(KNOWN_COCRYSTALS)) {
+    const [target, drug] = key.split("_");
+    // Match if both drug and target appear in the message
+    if (msg.includes(drug) && msg.includes(target)) {
+      return value;
+    }
+  }
+
+  // ── Brand-name only matching (e.g., "Lynparza" without mentioning PARP1) ──
+  for (const [key, value] of Object.entries(KNOWN_COCRYSTALS)) {
+    if (key === "LYNPARZA" || key === "RUBRACA" || key === "ZEJULA" || key === "TALZENNA") {
+      if (msg.includes(key)) return value;
+    }
+  }
+
+  return null;
+}
+
+async function resolveToolInputs(
+  toolName: string,
+  args: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const resolved = { ...args };
+
+  // ── fetch_alphafold_db: If gene symbol given instead of UniProt accession, resolve it ──
+  // UniProt accessions match ^[A-Z]\d{5}$ or ^[OPQ]\d{3}[A-Z]\d{2}$ (e.g., P38398, Q13362)
+  // Gene symbols are short uppercase strings that don't match this pattern (e.g., BRCA1, TP53)
+  if (
+    toolName === "fetch_alphafold_db" &&
+    resolved.uniprot_id &&
+    typeof resolved.uniprot_id === "string"
+  ) {
+    const id = resolved.uniprot_id as string;
+    // Check if it looks like a UniProt accession (not a gene symbol)
+    const isUniprotAccession = /^[OPQ]\d{3}[A-Z]\d{2}$|^[A-NR-Z]\d{5}$/.test(id);
+    if (!isUniprotAccession && id.length < 15 && /^[A-Z0-9]+$/.test(id)) {
+      console.log(`[SmartResolver] fetch_alphafold_db: '${id}' looks like a gene symbol, resolving to UniProt accession`);
+      try {
+        // Query UniProt by gene symbol to get the canonical accession
+        const uniData = await executeProtoTool("fetch_uniprot", {
+          uniprot_id: id,
+        });
+        const uniResult = uniData.result as Record<string, unknown> | undefined;
+        const accession = uniResult?.accession as string | undefined;
+        if (accession) {
+          resolved.uniprot_id = accession;
+          console.log(`[SmartResolver] Resolved gene '${id}' → UniProt accession '${accession}'`);
+        }
+      } catch (e) {
+        console.warn(`[SmartResolver] Failed to resolve gene symbol '${id}' to UniProt accession:`, e);
+      }
+    }
+  }
+
+  // ── ESMFold: If only gene_symbol given, fetch UniProt sequence ──
+  if (
+    toolName === "run_esmfold_prediction" &&
+    !resolved.complexes &&
+    (resolved.gene_symbol || resolved.gene)
+  ) {
+    const geneSymbol = String(resolved.gene_symbol || resolved.gene);
+    console.log(`[SmartResolver] ESMFold missing sequence, fetching UniProt for ${geneSymbol}`);
+    const uniData = await executeProtoTool("fetch_uniprot", {
+      uniprot_id: geneSymbol,
+    });
+    const sequence = (uniData.result as Record<string, unknown>)?.sequence as string | undefined;
+    if (sequence) {
+      resolved.complexes = [sequence];
+      delete resolved.gene_symbol;
+      delete resolved.gene;
+    }
+  }
+
+  // ── Boltz2 Affinity: Resolve both protein gene symbols and drug name ligands ──
+  if (
+    (toolName === "run_boltz2_affinity" || toolName === "run_boltz2_prediction") &&
+    resolved.complexes &&
+    !resolved._smiles_resolved
+  ) {
+    // Ensure complexes is an array of arrays — handle various formats Nemotron might produce
+    let complexes: Array<unknown>[] = [];
+    if (Array.isArray(resolved.complexes)) {
+      complexes = resolved.complexes as Array<unknown>[];
+    } else if (typeof resolved.complexes === "string") {
+      // Nemotron passed a string instead of an array — try to parse
+      try {
+        complexes = JSON.parse(resolved.complexes) as Array<unknown>[];
+      } catch {
+        // Can't parse, skip resolution
+        resolved._smiles_resolved = true;
+        return resolved;
+      }
+    } else {
+      // Unknown format, skip resolution
+      resolved._smiles_resolved = true;
+      return resolved;
+    }
+
+    // Check if any complex has a drug_name instead of SMILES
+    const resolvedComplexes = await Promise.all(
+      complexes.map(async (c) => {
+        if (!Array.isArray(c)) return c;
+        const [protein, ligand] = c as string[];
+
+        // ── Resolve protein: if it looks like a gene symbol or UniProt ID (not a sequence), fetch UniProt ──
+        let resolvedProtein = protein;
+        // Strip "protein:" prefix if Nemotron added it
+        if (typeof resolvedProtein === "string" && resolvedProtein.startsWith("protein:")) {
+          resolvedProtein = resolvedProtein.substring(8);
+        }
+        // Check if it's a gene symbol (short, uppercase alphanumeric) or UniProt accession (e.g., P00519)
+        if (resolvedProtein && typeof resolvedProtein === "string" && resolvedProtein.length < 15 && /^[A-Z0-9]+$/.test(resolvedProtein)) {
+          console.log(`[SmartResolver] Boltz2 protein '${resolvedProtein}' looks like a gene symbol/UniProt ID, fetching sequence`);
+          let sequence: string | undefined;
+          try {
+            const uniData = await executeProtoTool("fetch_uniprot", {
+              uniprot_id: resolvedProtein,
+            });
+            sequence = (uniData.result as Record<string, unknown>)?.sequence as string | undefined;
+          } catch (e) {
+            console.log(`[SmartResolver] ERROR: UniProt fetch failed for '${resolvedProtein}':`, e);
+          }
+          if (sequence && sequence.length > 20) {
+            resolvedProtein = sequence;
+            console.log(`[SmartResolver] Resolved protein to ${sequence.length} aa sequence`);
+          } else {
+            // HARD STOP: Don't send a gene symbol to a 10-minute GPU tool — fail fast
+            throw new Error(
+              `SmartResolver: Failed to resolve protein '${resolvedProtein}' to a sequence (UniProt returned no data). ` +
+              `Aborting GPU call to prevent wasting compute. Please retry the request.`
+            );
+          }
+        }
+
+        // ── Resolve ligand: if it looks like a drug name (not a SMILES string), fetch PubChem ──
+        // Strip "ligand:" prefix if Nemotron added it
+        let resolvedLigand = ligand;
+        if (typeof resolvedLigand === "string" && resolvedLigand.startsWith("ligand:")) {
+          resolvedLigand = resolvedLigand.substring(7);
+        }
+        // SMILES strings contain special chars: (, ), =, #, [, ], @, /, \, +, -
+        // Drug names are alphanumeric only (letters + maybe digits), typically < 30 chars
+        if (resolvedLigand && typeof resolvedLigand === "string" && !/[()=#\[\]@/\\+\-]/.test(resolvedLigand) && resolvedLigand.length < 30 && /^[A-Za-z0-9\s]+$/.test(resolvedLigand)) {
+          console.log(`[SmartResolver] Boltz2 ligand '${resolvedLigand}' looks like a drug name, fetching PubChem`);
+          const pubData = await executeProtoTool("fetch_pubchem", {
+            name: resolvedLigand,
+          });
+          const pubResult = pubData.result as Record<string, unknown> | undefined;
+          // PubChem returns SMILES in the 'smiles' field (not 'canonical_smiles')
+          const smiles = pubResult?.smiles as string | undefined ||
+            pubResult?.canonical_smiles as string | undefined ||
+            pubResult?.connectivity_smiles as string | undefined;
+          if (smiles) {
+            console.log(`[SmartResolver] Resolved ligand to SMILES: ${smiles.substring(0, 50)}...`);
+            resolvedLigand = smiles;
+          } else {
+            console.log(`[SmartResolver] WARNING: PubChem returned no SMILES for '${resolvedLigand}'. Result keys:`, pubResult ? Object.keys(pubResult) : 'null');
+          }
+        }
+
+        return [resolvedProtein, resolvedLigand];
+      }),
+    );
+    resolved.complexes = resolvedComplexes;
+    resolved._smiles_resolved = true;
+    // CRITICAL: Delete _smiles_resolved before sending to Modal — Boltz2's Pydantic
+    // model rejects extra fields. This flag is only for our internal use.
+    delete resolved._smiles_resolved;
+  }
+
+  // ── BLAST: If UniProt ID given instead of sequence, fetch sequence ──
+  if (
+    toolName === "run_blast_search" &&
+    resolved.query &&
+    typeof resolved.query === "string" &&
+    /^[A-Z]\d{5}$/.test(resolved.query) // Looks like a UniProt accession
+  ) {
+    console.log(`[SmartResolver] BLAST query '${resolved.query}' looks like UniProt ID, fetching sequence`);
+    const uniData = await executeProtoTool("fetch_uniprot", {
+      uniprot_id: resolved.query,
+    });
+    const sequence = (uniData.result as Record<string, unknown>)?.sequence as string | undefined;
+    if (sequence) {
+      resolved.query = sequence;
+    }
+  }
+
+  // ── ESM2 Score: If UniProt ID given instead of sequence, fetch sequence ──
+  if (
+    toolName === "run_esm2_score" &&
+    resolved.sequences &&
+    Array.isArray(resolved.sequences)
+  ) {
+    const sequences = resolved.sequences as string[];
+    const resolvedSeqs = await Promise.all(
+      sequences.map(async (s) => {
+        if (typeof s === "string" && /^[A-Z]\d{5}$/.test(s)) {
+          console.log(`[SmartResolver] ESM2 sequence '${s}' looks like UniProt ID, fetching`);
+          const uniData = await executeProtoTool("fetch_uniprot", { uniprot_id: s });
+          const seq = (uniData.result as Record<string, unknown>)?.sequence as string | undefined;
+          return seq || s;
+        }
+        return s;
+      }),
+    );
+    resolved.sequences = resolvedSeqs;
+  }
+
+  return resolved;
+}
 
 // =============================================================================
 // Configuration
@@ -45,7 +367,7 @@ interface ChatRequestBody {
 }
 
 interface StreamEvent {
-  event: "reasoning_delta" | "content_delta" | "tool_call" | "tool_result" | "done" | "error";
+  event: "reasoning_delta" | "content_delta" | "content_clear" | "tool_call" | "tool_result" | "3d_structure_payload" | "done" | "error";
   data: Record<string, unknown>;
 }
 
@@ -62,6 +384,16 @@ function buildGeneralSystemPrompt(): string {
 
 ## CRITICAL INSTRUCTION: TOOL USAGE
 You have access to a set of bioinformatics tools (functions). Before answering any structural, sequence, or database query, you MUST review your available tool schemas. Do NOT claim a tool is unavailable until you have thoroughly checked your function list. Common tools include: fetch_uniprot, fetch_alphafold_db, fetch_alphamissense, run_ensembl_vep, search_ncbi, run_interproscan_fetch, run_foldseek_search, run_viennarna_prediction, run_blast_search, run_segmasker_score, and more. Always prefer calling a tool over guessing an answer.
+
+## STRICT EXECUTION RULES (OBEY OR FAIL):
+1. PARALLEL EXECUTION: If you need to call multiple independent tools (e.g., fetch_uniprot, fetch_alphafold_db, and fetch_alphamissense), you MUST emit them as a single tool_calls array containing all objects. DO NOT call them one by one — batch them in one response.
+2. CONTEXT AWARENESS: If the user's question is about a variant already discussed, or data already present in the report context above, DO NOT re-fetch it. Use the data already available.
+3. ARGUMENT STRICTNESS: Never guess a UniProt accession (e.g., do not guess "P38398" for BRCA1 unless you are certain). If you only have a gene symbol, pass the gene symbol to the tool — the backend will resolve it automatically.
+4. SEQUENTIAL DEPENDENCY: If Tool B depends on Tool A's output (e.g., BLAST needs a sequence from UniProt), call Tool A first, wait for the result, then call Tool B. Do NOT try to call both simultaneously if there is a data dependency.
+5. IN-CHAT 3D VIEWER: If the user says "show 3D", "view structure", "render structure", "show structure", or asks to see a protein structure visually, you MUST call fetch_alphafold_db (or run_esmfold_prediction for mutant sequences). Never tell the user the structure is "already available" or "look at the report panel" — you must explicitly invoke the tool to render the interactive 3D viewer inside this chat window.
+6. GPU EXCLUSIVITY: When calling a GPU tool (run_esmfold_prediction, run_esm2_score, run_proteinmpnn_sample, run_proteinmpnn_score, run_pymol_rmsd_alignment), DO NOT call CPU-heavy tools (run_mmseqs2_search_proteins, run_blast_search, run_mafft_align) in the same parallel block. GPU tools need all available network and container resources. Call GPU tools alone or only with lightweight fetch tools (fetch_uniprot, fetch_pubchem).
+7. DRUG-TARGET STRUCTURE PRIORITY: Before predicting a drug-protein structure, check if an experimentally determined PDB co-crystal structure exists. Call fetch_pdb_entry with a known co-crystal PDB ID (e.g., 1IEP for ABL1+Imatinib, 1M17 for EGFR+Erlotinib, 5DS3 for PARP1+Olaparib). These X-ray crystallography structures are far more accurate than any computational prediction and render instantly in the 3D viewer. Only use run_esmfold_prediction for novel proteins with no known structure. Do NOT use Boltz2 for drug docking in chat — it takes 10+ minutes.
+8. SYNTHETIC LETHALITY: If the user asks for a drug for a BRCA1 or BRCA2 mutation, do NOT try to find a drug that binds to BRCA1/2 directly — there are none. Instead, explain that BRCA1/2 mutations cause Homologous Recombination Deficiency (HRD), making the cell dependent on PARP1/2 for DNA repair. The clinical strategy is Synthetic Lethality: inhibit PARP1/2 with Olaparib, Rucaparib, Niraparib, or Talazoparib. The backend will automatically fetch the PARP1 co-crystal structure (PDB: 5DS3 for Olaparib) when you mention these drugs.
 
 ## YOUR CAPABILITIES
 - Explain variant pathogenicity concepts (VUS, pathogenic, benign, likely pathogenic)
@@ -100,6 +432,16 @@ function buildSystemPrompt(report: Record<string, unknown>): string {
 
 ## CRITICAL INSTRUCTION: TOOL USAGE
 You have access to a set of bioinformatics tools (functions). Before answering any structural, sequence, or database query, you MUST review your available tool schemas. Do NOT claim a tool is unavailable until you have thoroughly checked your function list. Common tools include: fetch_uniprot, fetch_alphafold_db, fetch_alphamissense, run_ensembl_vep, search_ncbi, run_interproscan_fetch, run_foldseek_search, run_viennarna_prediction, run_blast_search, run_segmasker_score, run_mafft_align, run_mmseqs2_search_proteins, and more. Always prefer calling a tool over guessing an answer.
+
+## STRICT EXECUTION RULES (OBEY OR FAIL):
+1. PARALLEL EXECUTION: If you need to call multiple independent tools (e.g., fetch_uniprot, fetch_alphafold_db, and fetch_alphamissense), you MUST emit them as a single tool_calls array containing all objects. DO NOT call them one by one — batch them in one response.
+2. CONTEXT AWARENESS: If the user's question is about a variant already discussed, or data already present in the report context above, DO NOT re-fetch it. Use the data already available.
+3. ARGUMENT STRICTNESS: Never guess a UniProt accession (e.g., do not guess "P38398" for BRCA1 unless you are certain). If you only have a gene symbol, pass the gene symbol to the tool — the backend will resolve it automatically.
+4. SEQUENTIAL DEPENDENCY: If Tool B depends on Tool A's output (e.g., BLAST needs a sequence from UniProt), call Tool A first, wait for the result, then call Tool B. Do NOT try to call both simultaneously if there is a data dependency.
+5. IN-CHAT 3D VIEWER: If the user says "show 3D", "view structure", "render structure", "show structure", or asks to see a protein structure visually, you MUST call fetch_alphafold_db (or run_esmfold_prediction for mutant sequences). Never tell the user the structure is "already available" or "look at the report panel" — you must explicitly invoke the tool to render the interactive 3D viewer inside this chat window.
+6. GPU EXCLUSIVITY: When calling a GPU tool (run_esmfold_prediction, run_esm2_score, run_proteinmpnn_sample, run_proteinmpnn_score, run_pymol_rmsd_alignment), DO NOT call CPU-heavy tools (run_mmseqs2_search_proteins, run_blast_search, run_mafft_align) in the same parallel block. GPU tools need all available network and container resources. Call GPU tools alone or only with lightweight fetch tools (fetch_uniprot, fetch_pubchem).
+7. DRUG-TARGET STRUCTURE PRIORITY: Before predicting a drug-protein structure, check if an experimentally determined PDB co-crystal structure exists. Call fetch_pdb_entry with a known co-crystal PDB ID (e.g., 1IEP for ABL1+Imatinib, 1M17 for EGFR+Erlotinib, 5DS3 for PARP1+Olaparib). These X-ray crystallography structures are far more accurate than any computational prediction and render instantly in the 3D viewer. Only use run_esmfold_prediction for novel proteins with no known structure. Do NOT use Boltz2 for drug docking in chat — it takes 10+ minutes.
+8. SYNTHETIC LETHALITY: If the user asks for a drug for a BRCA1 or BRCA2 mutation, do NOT try to find a drug that binds to BRCA1/2 directly — there are none. Instead, explain that BRCA1/2 mutations cause Homologous Recombination Deficiency (HRD), making the cell dependent on PARP1/2 for DNA repair. The clinical strategy is Synthetic Lethality: inhibit PARP1/2 with Olaparib, Rucaparib, Niraparib, or Talazoparib. The backend will automatically fetch the PARP1 co-crystal structure (PDB: 5DS3 for Olaparib) when you mention these drugs.
 
 ## YOUR CAPABILITIES
 - Explain variant pathogenicity predictions in plain language
@@ -386,11 +728,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    // --- Load previous messages for context ---
+    // --- Load previous messages for context (limited to prevent context bleed) ---
     const previousMessages = await db.chatMessage.findMany({
       where: { sessionId: chatSession.id },
       orderBy: { createdAt: "asc" },
-      take: 20, // last 20 messages for context window
+      take: 6, // last 6 messages (3 turns) — enough for follow-up questions without context bleed
     });
 
     // --- Build the system prompt ---
@@ -426,17 +768,166 @@ export async function POST(request: NextRequest) {
     }
 
     console.log("[Chat] Calling NVIDIA Nemotron API (streaming)...");
+    console.log(`[Chat] Last user message: "${message.substring(0, 100)}"`);
+    console.log(`[Chat] Context messages: ${previousMessages.length} previous messages loaded`);
     const startTime = Date.now();
 
     // --- Get tool definitions for this mode ---
     const tools = getToolsForMode(mode);
-    const MAX_TOOL_CALLS = 3;
+    // Fix 2: Dynamic tool budget based on query complexity
+    const MAX_TOOL_CALLS = calculateToolBudget(message, mode);
+    console.log(`[Chat] Tool Budget: ${MAX_TOOL_CALLS} (mode=${mode}, query="${message.substring(0, 60)}...")`);
+
+    // ── Smart Drug Lookup Interceptor ──
+    // Before calling Nemotron, check if the user's message matches a known
+    // drug-target co-crystal. If so, fetch the PDB directly and stream the
+    // result — zero GPU time, instant response, experimentally determined structure.
+    const knownCocrystal = lookupKnownCocrystal(message);
+    if (knownCocrystal) {
+      console.log(`[SmartDrugLookup] Match found: ${knownCocrystal.drug} + ${knownCocrystal.target} → PDB ${knownCocrystal.pdb_id}`);
+
+      const stream = new ReadableStream({
+        async start(controller) {
+          const encoder = new TextEncoder();
+          let streamClosed = false;
+          const send = (event: StreamEvent) => {
+            if (streamClosed) return;
+            try {
+              controller.enqueue(encoder.encode(encodeEvent(event)));
+            } catch (e) {
+              streamClosed = true;
+            }
+          };
+
+          try {
+            // 0. Send a tool_call event so the frontend creates an assistant message entry
+            //    The frontend's SSE parser expects tool_call events to create the message
+            const toolCallId = "smart-drug-lookup-1";
+            send({
+              event: "tool_call",
+              data: {
+                toolCallId,
+                toolName: "fetch_pdb_entry",
+                status: "calling",
+                args: { pdb_id: knownCocrystal.pdb_id },
+              },
+            });
+
+            // 1. Stream reasoning (chain of thought)
+            send({
+              event: "reasoning_delta",
+              data: {
+                delta: `User is asking about ${knownCocrystal.drug} and ${knownCocrystal.target}. I found an experimentally determined co-crystal structure in PDB: ${knownCocrystal.pdb_id}. Fetching the structure directly from RCSB instead of running slow GPU prediction.`,
+              },
+            });
+
+            // 2. Fetch the PDB coordinates directly from RCSB
+            //    The proto-tools pdb_fetch_entry only returns metadata, not coordinates.
+            //    We fetch the actual PDB file from the RCSB download URL.
+            const pdbUrl = `https://files.rcsb.org/download/${knownCocrystal.pdb_id}.pdb`;
+            const pdbResponse = await fetch(pdbUrl, {
+              signal: AbortSignal.timeout(30000),
+            });
+
+            if (!pdbResponse.ok) {
+              throw new Error(`Failed to fetch PDB: ${pdbResponse.status}`);
+            }
+
+            const pdbString = await pdbResponse.text();
+
+            if (pdbString && pdbString.length > 100 && pdbString.startsWith("HEADER")) {
+              // 3. Send tool_result so the frontend marks the tool as completed
+              send({
+                event: "tool_result",
+                data: {
+                  toolCallId,
+                  toolName: "fetch_pdb_entry",
+                  status: "completed",
+                  result: { pdb_id: knownCocrystal.pdb_id, title: knownCocrystal.target },
+                  executionTimeMs: 500,
+                },
+              });
+
+              // 4. Send the 3D structure payload for the in-chat viewer
+              //    The frontend matches this to the toolCallId we sent above
+              send({
+                event: "3d_structure_payload",
+                data: {
+                  toolCallId,
+                  pdbString,
+                  title: `${knownCocrystal.target} + ${knownCocrystal.drug} (PDB: ${knownCocrystal.pdb_id})`,
+                  geneSymbol: knownCocrystal.target,
+                  source: "pdb_experimental",
+                },
+              });
+
+              // 5. Stream the explanation with experimental data
+              const ic50Text = knownCocrystal.ic50_nM
+                ? `**Experimental IC50:** ${knownCocrystal.ic50_nM < 1 ? knownCocrystal.ic50_nM.toFixed(2) : knownCocrystal.ic50_nM} nM`
+                : "IC50 data not available";
+              const explanation = `I found an experimentally determined co-crystal structure for **${knownCocrystal.drug}** bound to **${knownCocrystal.target}** (PDB: ${knownCocrystal.pdb_id}).
+
+### Experimentally Determined Structure
+
+**PDB ID:** ${knownCocrystal.pdb_id}
+**Drug:** ${knownCocrystal.drug}
+**Target:** ${knownCocrystal.target}
+**Binding Mode:** ${knownCocrystal.binding_type}
+${ic50Text}
+${knownCocrystal.mechanism ? `\n**Mechanism:** ${knownCocrystal.mechanism}` : ""}
+
+This is an **X-ray crystallography structure** — far more accurate than any computational prediction. The 3D viewer above shows the protein (ribbons) with ${knownCocrystal.drug} (sticks) bound in the active site.
+
+${knownCocrystal.mechanism && knownCocrystal.mechanism.includes("Synthetic Lethal") ? "**Why this drug works for BRCA mutations:** BRCA1/2 mutations disable Homologous Recombination (HR) repair. The cell becomes entirely dependent on PARP-mediated repair. By trapping PARP1 on DNA, this drug causes lethal double-strand breaks that only the BRCA-deficient (HR-impaired) cell cannot fix. Healthy cells with functional BRCA1/2 survive. This is the principle of **Synthetic Lethality** — the basis of PARP inhibitor therapy.\n\n" : ""}**Why this matters:** Using experimentally determined structures avoids the 10+ minute wait of de novo structure prediction (Boltz2) and provides atomic-resolution accuracy (typically 1.5–2.5 Å).
+
+> ⚠️ This is a research tool. Clinical decisions require professional pharmacological assessment.`;
+
+              send({
+                event: "content_delta",
+                data: { delta: explanation },
+              });
+            } else {
+              send({
+                event: "content_delta",
+                data: { delta: `I found a known co-crystal structure (PDB: ${knownCocrystal.pdb_id}), but encountered an issue fetching the PDB file. You can view it directly at https://www.rcsb.org/structure/${knownCocrystal.pdb_id}` },
+              });
+            }
+
+            send({ event: "done", data: {} });
+          } catch (error) {
+            console.error("[SmartDrugLookup] Error:", error);
+            send({
+              event: "content_delta",
+              data: { delta: `I found a known co-crystal structure for ${knownCocrystal.drug} + ${knownCocrystal.target} (PDB: ${knownCocrystal.pdb_id}), but encountered an error fetching it. You can view it at https://www.rcsb.org/structure/${knownCocrystal.pdb_id}` },
+            });
+            send({ event: "done", data: {} });
+          }
+
+          controller.close();
+        },
+      });
+
+      return new Response(stream, {
+        headers: {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+        },
+      });
+    }
 
     const stream = new ReadableStream({
       async start(controller) {
         const encoder = new TextEncoder();
+        let streamClosed = false;
         const send = (event: StreamEvent) => {
-          controller.enqueue(encoder.encode(encodeEvent(event)));
+          if (streamClosed) return;
+          try {
+            controller.enqueue(encoder.encode(encodeEvent(event)));
+          } catch (e) {
+            streamClosed = true;
+            console.log("[Chat] Stream closed, stopping sends");
+          }
         };
 
         try {
@@ -465,7 +956,7 @@ export async function POST(request: NextRequest) {
               messages: nvidiaMessages,
               temperature: 0.3,
               top_p: 0.9,
-              max_tokens: 1024,
+              max_tokens: 4096,
               stream: true,
             };
 
@@ -482,7 +973,7 @@ export async function POST(request: NextRequest) {
                 Authorization: `Bearer ${NVIDIA_API_KEY}`,
               },
               body: JSON.stringify(nvidiaBody),
-              signal: AbortSignal.timeout(180_000),
+              signal: AbortSignal.timeout(900_000), // 15 min — Boltz2 can take 5+ min
             });
 
             if (!nvidiaResponse.ok) {
@@ -586,6 +1077,78 @@ export async function POST(request: NextRequest) {
               }
             }
 
+            // ─── FALLBACK: Detect tool calls emitted as text (not structured) ──
+            // Nemotron-3 sometimes outputs tool calls as JSON in reasoning_content
+            // or content instead of using the structured tool_calls field. This
+            // fallback parser scans the accumulated text for tool call patterns
+            // and extracts them for execution.
+            if (
+              iterationToolCalls.length === 0 &&
+              toolCallCount < MAX_TOOL_CALLS
+            ) {
+              // Patterns to match:
+              // {"tool": "fetch_alphafold_db", "arguments": {"uniprot_id": "P38398"}}
+              // {"tool_call": {"name": "fetch_alphafold_db", "arguments": {...}}}
+              // ```json\n{"tool": "fetch_alphafold_db", ...}\n```
+              const toolCallPattern =
+                /\{[\s]*"tool"[\s]*:[\s]*"([a-zA-Z0-9_]+)"[\s]*,[\s]*"arguments"[\s]*:[\s]*(\{[^}]*\})[\s]*\}/g;
+              const altPattern =
+                /\{[\s]*"tool_call"[\s]*:[\s]*\{[\s]*"name"[\s]*:[\s]*"([a-zA-Z0-9_]+)"[\s]*,[\s]*"arguments"[\s]*:[\s]*(\{[^}]*\})[\s]*\}[\s]*\}/g;
+
+              const combinedText = reasoningContent + "\n" + assistantContent;
+
+              let match: RegExpExecArray | null;
+              // Try primary pattern
+              while ((match = toolCallPattern.exec(combinedText)) !== null) {
+                const toolName = match[1];
+                const argsStr = match[2];
+                try {
+                  JSON.parse(argsStr); // Validate JSON
+                  iterationToolCalls.push({
+                    id: `fallback-${toolCallCount}-${iterationToolCalls.length}`,
+                    name: toolName,
+                    arguments: argsStr,
+                  });
+                  console.log(`[Chat] Fallback parser found tool call: ${toolName} with args: ${argsStr}`);
+                } catch {
+                  console.warn(`[Chat] Fallback parser found ${toolName} but args JSON is invalid: ${argsStr}`);
+                }
+              }
+              // Try alternate pattern if primary found nothing
+              if (iterationToolCalls.length === 0) {
+                while ((match = altPattern.exec(combinedText)) !== null) {
+                  const toolName = match[1];
+                  const argsStr = match[2];
+                  try {
+                    JSON.parse(argsStr);
+                    iterationToolCalls.push({
+                      id: `fallback-${toolCallCount}-${iterationToolCalls.length}`,
+                      name: toolName,
+                      arguments: argsStr,
+                    });
+                    console.log(`[Chat] Fallback parser (alt) found tool call: ${toolName} with args: ${argsStr}`);
+                  } catch {
+                    console.warn(`[Chat] Fallback parser (alt) found ${toolName} but args JSON is invalid: ${argsStr}`);
+                  }
+                }
+              }
+
+              // If we found tool calls via fallback, override finishReason
+              if (iterationToolCalls.length > 0) {
+                finishReason = "tool_calls";
+                // Clear the assistant content that was streamed — it contained
+                // the raw JSON which we don't want the user to see.
+                if (assistantContent) {
+                  send({
+                    event: "content_clear",
+                    data: {},
+                  });
+                  // Reset assistantContent so it doesn't get persisted with JSON junk
+                  assistantContent = "";
+                }
+              }
+            }
+
             // ─── Check if Nemotron wants to call tools ────────────────────
             if (
               iterationToolCalls.length > 0 &&
@@ -628,6 +1191,9 @@ export async function POST(request: NextRequest) {
                 };
                 messageToolCalls.push(messageToolCall);
 
+                // Fix 3: Smart Input Resolution — resolve missing prerequisites silently
+                parsedArgs = await resolveToolInputs(tc.name, parsedArgs);
+
                 // Execute the tool via Modal
                 console.log(`[Chat] Executing tool: ${tc.name} with args:`, parsedArgs);
                 const toolResult = await executeProtoTool(tc.name, parsedArgs);
@@ -638,14 +1204,111 @@ export async function POST(request: NextRequest) {
                 messageToolCall.error = toolResult.error;
                 messageToolCall.executionTimeMs = toolResult.executionTimeMs;
 
+                // ── SPLIT STREAM: Send raw PDB to browser for 3D rendering ──
+                // The sanitizer strips PDB coordinates from Nemotron's context (LLMs can't read 3D coords),
+                // but the browser CAN render them. We intercept the raw PDB here and send it via a
+                // separate SSE event so the frontend can render the 3D viewer inline in the chat.
+                if (toolResult.status === "completed" && toolResult.result) {
+                  const rawResult = toolResult.result as Record<string, unknown>;
+                  // Debug: log the keys of the result to find where PDB data is stored
+                  console.log(`[Chat] Tool result keys for ${tc.name}:`, Object.keys(rawResult));
+                  // Check for PDB string in various possible field names
+                  let pdbString: string | null = null;
+                  
+                  // Try direct string fields
+                  if (typeof rawResult.structure === 'string') pdbString = rawResult.structure as string;
+                  else if (typeof rawResult.pdb_string === 'string') pdbString = rawResult.pdb_string as string;
+                  else if (typeof rawResult.pdb === 'string') pdbString = rawResult.pdb as string;
+                  else if (typeof rawResult.pdb_data === 'string') pdbString = rawResult.pdb_data as string;
+                  else if (typeof rawResult.coordinates === 'string') pdbString = rawResult.coordinates as string;
+                  else if (rawResult.results && Array.isArray(rawResult.results)) {
+                    const firstResult = (rawResult.results as Array<Record<string, unknown>>)[0];
+                    if (firstResult) {
+                      if (typeof firstResult.pdb_string === 'string') pdbString = firstResult.pdb_string as string;
+                      else if (typeof firstResult.pdb === 'string') pdbString = firstResult.pdb as string;
+                    }
+                  }
+
+                  // ── FALLBACK 1: If tool returned a pdb_url, fetch the PDB directly ──
+                  if (!pdbString && tc.name === "fetch_alphafold_db" && rawResult.pdb_url) {
+                    const pdbUrl = rawResult.pdb_url as string;
+                    console.log(`[Chat] Fetching PDB from tool-provided URL: ${pdbUrl}`);
+                    try {
+                      const pdbResponse = await fetch(pdbUrl, { signal: AbortSignal.timeout(15000) });
+                      if (pdbResponse.ok) {
+                        pdbString = await pdbResponse.text();
+                        console.log(`[Chat] Fetched PDB from URL: ${pdbString.length} chars`);
+                      }
+                    } catch (fetchErr) {
+                      console.error(`[Chat] Failed to fetch PDB from URL:`, fetchErr);
+                    }
+                  }
+
+                  // ── FALLBACK 2: If still no PDB, construct URL from UniProt ID ──
+                  if (!pdbString && tc.name === "fetch_alphafold_db" && parsedArgs.uniprot_id) {
+                    const uniprotId = String(parsedArgs.uniprot_id);
+                    console.log(`[Chat] No PDB in tool result, fetching directly from AlphaFold API for ${uniprotId}`);
+                    try {
+                      // Try multiple model versions (v4, v5, v6) — AlphaFold updates incrementally
+                      const modelVersions = ["v4", "v5", "v6"];
+                      for (const ver of modelVersions) {
+                        // Try PDB format first
+                        const pdbUrl = `https://alphafold.ebi.ac.uk/files/AF-${uniprotId}-F1-model_${ver}.pdb`;
+                        const pdbResponse = await fetch(pdbUrl, { signal: AbortSignal.timeout(10000) });
+                        if (pdbResponse.ok) {
+                          pdbString = await pdbResponse.text();
+                          console.log(`[Chat] Fetched PDB from AlphaFold (${ver}): ${pdbString.length} chars`);
+                          break;
+                        }
+                        // Try mmCIF format
+                        const cifUrl = `https://alphafold.ebi.ac.uk/files/AF-${uniprotId}-F1-model_${ver}.cif`;
+                        const cifResponse = await fetch(cifUrl, { signal: AbortSignal.timeout(10000) });
+                        if (cifResponse.ok) {
+                          pdbString = await cifResponse.text();
+                          console.log(`[Chat] Fetched mmCIF from AlphaFold (${ver}): ${pdbString.length} chars`);
+                          break;
+                        }
+                      }
+                    } catch (fetchErr) {
+                      console.error(`[Chat] Failed to fetch PDB directly:`, fetchErr);
+                    }
+                  }
+
+                  if (pdbString && (tc.name === "fetch_alphafold_db" || tc.name === "run_esmfold_prediction")) {
+                    const geneSymbol = (report as Record<string, unknown> | null)?.geneSymbol as string || "Protein";
+                    send({
+                      event: "3d_structure_payload",
+                      data: {
+                        toolCallId: tc.id,
+                        pdbString: pdbString,
+                        title: tc.name === "fetch_alphafold_db" ? "AlphaFold DB Structure" : "ESMFold Prediction",
+                        geneSymbol: geneSymbol,
+                      },
+                    });
+                    console.log(`[Chat] Sent 3D structure payload for ${tc.name} (${pdbString.length} chars)`);
+                  }
+                }
+
                 // Send result to frontend
+                // Send a COMPACT version to the frontend UI to prevent SSE parsing issues
+                // (large raw results can exceed the SSE chunk buffer and cause the
+                // tool_result event to be silently dropped, leaving the spinner stuck)
+                const compactResultStr = toolResult.status === "completed"
+                  ? sanitizeToolResponse(tc.name, toolResult.result)
+                  : JSON.stringify({ error: toolResult.error });
+                let compactResultParsed: Record<string, unknown> = {};
+                try {
+                  compactResultParsed = JSON.parse(compactResultStr);
+                } catch {
+                  compactResultParsed = { _raw: compactResultStr.substring(0, 500) };
+                }
                 send({
                   event: "tool_result",
                   data: {
                     toolCallId: tc.id,
                     toolName: tc.name,
                     status: toolResult.status,
-                    result: toolResult.result,
+                    result: compactResultParsed,
                     error: toolResult.error,
                     executionTimeMs: toolResult.executionTimeMs,
                   },
@@ -667,38 +1330,12 @@ export async function POST(request: NextRequest) {
                     },
                   ],
                 } as { role: string; content: string; tool_calls?: unknown });
-                // The tool result message must include tool_call_id
-                // Pre-filter large results before truncation to preserve the most relevant data
-                let toolResultData = toolResult.status === "completed"
+                // Fix 1: Sanitize tool response before feeding to Nemotron
+                // Replaces naive 50K truncation with tool-specific extraction
+                const toolResultData = toolResult.status === "completed"
                   ? toolResult.result
                   : { error: toolResult.error };
-
-                // AlphaMissense pre-filtering: keep only top pathogenic variants
-                if (tc.name === "fetch_alphamissense" && toolResultData) {
-                  const raw = toolResultData as Record<string, unknown>;
-                  if (raw.predictions && Array.isArray(raw.predictions)) {
-                    const preds = raw.predictions as Array<Record<string, number>>;
-                    const filtered = preds
-                      .filter((p) => (p.am_pathogenicity ?? p.score ?? 0) > 0.34)
-                      .sort((a, b) => (b.am_pathogenicity ?? b.score ?? 0) - (a.am_pathogenicity ?? a.score ?? 0))
-                      .slice(0, 50);
-                    toolResultData = {
-                      ...raw,
-                      predictions: filtered,
-                      note: `Data heavily truncated: kept top ${filtered.length} pathogenic variants (score > 0.34) out of ${preds.length} total predictions.`,
-                    };
-                    console.log(`[Chat] AlphaMissense pre-filtered: ${preds.length} → ${filtered.length} variants`);
-                  }
-                }
-
-                // Truncate large results to fit within Nemotron's 1M token context
-                const MAX_TOOL_RESULT_CHARS = 50000; // ~12K tokens, safe limit
-                let toolResultStr = JSON.stringify(toolResultData);
-                if (toolResultStr.length > MAX_TOOL_RESULT_CHARS) {
-                  toolResultStr =
-                    toolResultStr.substring(0, MAX_TOOL_RESULT_CHARS) +
-                    '\n... [truncated: result was ' + toolResultStr.length + ' chars, showing first ' + MAX_TOOL_RESULT_CHARS + ']';
-                }
+                const toolResultStr = sanitizeToolResponse(tc.name, toolResultData);
                 nvidiaMessages.push({
                   role: "tool",
                   tool_call_id: tc.id,
