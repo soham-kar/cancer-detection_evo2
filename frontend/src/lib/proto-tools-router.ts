@@ -147,7 +147,7 @@ export async function executeProtoTool(
         input,
         config: config || {},
       }),
-      signal: AbortSignal.timeout(120_000), // 2 min timeout
+      signal: AbortSignal.timeout(GPU_TOOLS.has(toolKey) ? 900_000 : 120_000), // 15 min for GPU tools, 2 min for CPU
     });
 
     if (!response.ok) {
