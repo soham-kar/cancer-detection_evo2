@@ -113,6 +113,13 @@ export function ChatSidePanel({ isOpen, onClose, isExpanded, onToggleExpand }: C
     async (messageText: string) => {
       if (isLoading) return;
 
+      // Abort any existing stream before starting a new one
+      // (prevents old SSE events from bleeding into the new message)
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+
       const userMessage: ChatMessageData = {
         id: `user-${Date.now()}`,
         role: "user",
@@ -164,125 +171,174 @@ export function ChatSidePanel({ isOpen, onClose, isExpanded, onToggleExpand }: C
           if (done) break;
 
           buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
+          // Split on double-newline (SSE event separator) to get complete events
+          const events = buffer.split("\n\n");
+          buffer = events.pop() || "";
 
-          for (let i = 0; i < lines.length; i++) {
-            const trimmed = lines[i]!.trim();
-            if (!trimmed) continue;
+          for (const eventBlock of events) {
+            const lines = eventBlock.split("\n");
+            let eventName: string | null = null;
+            let dataStr = "";
 
-            // Parse SSE lines: "event: xxx" then "data: {...}"
-            const eventMatch = trimmed.match(/^event:\s*(\S+)$/);
-            if (eventMatch) {
-              const eventName = eventMatch[1];
-              const dataLine = lines[i + 1];
-              if (!dataLine?.startsWith("data:")) continue;
+            for (const line of lines) {
+              const trimmed = line.trim();
+              if (!trimmed) continue;
 
-              const dataStr = dataLine.slice(5).trim();
-              try {
-                const data = JSON.parse(dataStr) as Record<string, unknown>;
-
-                if (eventName === "reasoning_delta") {
-                  const delta = String(data.delta || "");
-                  setMessages((prev) => {
-                    const last = prev[prev.length - 1];
-                    if (!last || last.role !== "assistant") return prev;
-                    const updated = { ...last };
-                    updated.reasoning = (updated.reasoning || "") + delta;
-                    return [...prev.slice(0, -1), updated];
-                  });
-                } else if (eventName === "content_delta") {
-                  const delta = String(data.delta || "");
-                  setMessages((prev) => {
-                    const last = prev[prev.length - 1];
-                    if (!last || last.role !== "assistant") return prev;
-                    const updated = { ...last };
-                    updated.content = (updated.content || "") + delta;
-                    return [...prev.slice(0, -1), updated];
-                  });
-                } else if (eventName === "tool_call") {
-                  // Tool call started — add to the assistant message's toolCalls array
-                  const toolCallData = data as {
-                    toolCallId: string;
-                    toolName: string;
-                    status: string;
-                    args: Record<string, unknown>;
-                  };
-                  setMessages((prev) => {
-                    const last = prev[prev.length - 1];
-                    if (!last || last.role !== "assistant") return prev;
-                    const updated = { ...last };
-                    updated.toolCalls = [
-                      ...(updated.toolCalls || []),
-                      {
-                        toolCallId: toolCallData.toolCallId,
-                        toolName: toolCallData.toolName,
-                        status: "calling",
-                        args: toolCallData.args,
-                      },
-                    ];
-                    return [...prev.slice(0, -1), updated];
-                  });
-                } else if (eventName === "tool_result") {
-                  // Tool call completed — update the tool call in the message
-                  const resultData = data as {
-                    toolCallId: string;
-                    toolName: string;
-                    status: string;
-                    result?: Record<string, unknown>;
-                    error?: string;
-                    executionTimeMs?: number;
-                  };
-                  setMessages((prev) => {
-                    const last = prev[prev.length - 1];
-                    if (!last || last.role !== "assistant") return prev;
-                    const updated = { ...last };
-                    updated.toolCalls = (updated.toolCalls || []).map((tc) =>
-                      tc.toolCallId === resultData.toolCallId
-                        ? {
-                            ...tc,
-                            status: resultData.status as "completed" | "failed",
-                            result: resultData.result,
-                            error: resultData.error,
-                            executionTimeMs: resultData.executionTimeMs,
-                          }
-                        : tc,
-                    );
-                    return [...prev.slice(0, -1), updated];
-                  });
-                } else if (eventName === "done") {
-                  const doneData = data as {
-                    sessionId?: string;
-                    latencyMs?: number;
-                    tokens?: unknown;
-                  };
-                  if (doneData.sessionId) {
-                    setActiveSessionId(doneData.sessionId);
-                    setSessions((prev) => {
-                      const exists = prev.some((s) => s.id === doneData.sessionId);
-                      if (exists) return prev;
-                      return [
-                        {
-                          id: doneData.sessionId!,
-                          title: activeVariant
-                            ? `Chat about ${activeVariant.geneSymbol}`
-                            : "General genomics chat",
-                          updatedAt: new Date().toISOString(),
-                          reportGeneSymbol: activeVariant?.geneSymbol || null,
-                        },
-                        ...prev,
-                      ];
-                    });
-                  }
-                } else if (eventName === "error") {
-                  throw new Error(String(data.error || "Streaming error"));
-                }
-              } catch {
-                // Ignore malformed chunks
+              if (trimmed.startsWith("event:")) {
+                eventName = trimmed.slice(6).trim();
+              } else if (trimmed.startsWith("data:")) {
+                dataStr += trimmed.slice(5).trim();
               }
             }
-          }
-        }
+
+            if (!eventName || !dataStr) continue;
+
+            try {
+              const data = JSON.parse(dataStr) as Record<string, unknown>;
+
+              if (eventName === "reasoning_delta") {
+                const delta = String(data.delta || "");
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (!last || last.role !== "assistant") return prev;
+                  const updated = { ...last };
+                  updated.reasoning = (updated.reasoning || "") + delta;
+                  return [...prev.slice(0, -1), updated];
+                });
+              } else if (eventName === "content_delta") {
+                const delta = String(data.delta || "");
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (!last || last.role !== "assistant") return prev;
+                  const updated = { ...last };
+                  updated.content = (updated.content || "") + delta;
+                  return [...prev.slice(0, -1), updated];
+                });
+              } else if (eventName === "content_clear") {
+                // Clear the assistant content — used when fallback parser
+                // detected a tool call in the streamed text and needs to
+                // remove the raw JSON before executing the tool
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (!last || last.role !== "assistant") return prev;
+                  const updated = { ...last };
+                  updated.content = "";
+                  return [...prev.slice(0, -1), updated];
+                });
+              } else if (eventName === "tool_call") {
+                // Tool call started — add to the assistant message's toolCalls array
+                const toolCallData = data as {
+                  toolCallId: string;
+                  toolName: string;
+                  status: string;
+                  args: Record<string, unknown>;
+                };
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (!last || last.role !== "assistant") return prev;
+                  const updated = { ...last };
+                  updated.toolCalls = [
+                    ...(updated.toolCalls || []),
+                    {
+                      toolCallId: toolCallData.toolCallId,
+                      toolName: toolCallData.toolName,
+                      status: "calling",
+                      args: toolCallData.args,
+                    },
+                  ];
+                  return [...prev.slice(0, -1), updated];
+                });
+              } else if (eventName === "tool_result") {
+                // Tool call completed — update the tool call in the message
+                console.log(`[ChatSidePanel] Received tool_result for ${data.toolCallId}:`, data.status);
+                const resultData = data as {
+                  toolCallId: string;
+                  toolName: string;
+                  status: string;
+                  result?: Record<string, unknown>;
+                  error?: string;
+                  executionTimeMs?: number;
+                };
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (!last || last.role !== "assistant") return prev;
+                  const updated = { ...last };
+                  updated.toolCalls = (updated.toolCalls || []).map((tc) =>
+                    tc.toolCallId === resultData.toolCallId
+                      ? {
+                          ...tc,
+                          status: resultData.status as "completed" | "failed",
+                          result: resultData.result,
+                          error: resultData.error,
+                          executionTimeMs: resultData.executionTimeMs,
+                        }
+                      : tc,
+                  );
+                  return [...prev.slice(0, -1), updated];
+                });
+              } else if (eventName === "3d_structure_payload") {
+                // Split Stream: Raw PDB coordinates sent from backend for 3D viewer rendering
+                // The sanitizer strips PDB from Nemotron's context, but the browser can render it
+                console.log(`[ChatSidePanel] Received 3D structure payload for ${data.toolCallId}`);
+                const payload = data as {
+                  toolCallId: string;
+                  pdbString: string;
+                  title: string;
+                  geneSymbol: string;
+                  source?: "alphafold" | "pdb_experimental" | null;
+                };
+                setMessages((prev) => {
+                  const last = prev[prev.length - 1];
+                  if (!last || last.role !== "assistant") return prev;
+                  const updated = { ...last };
+                  updated.toolCalls = (updated.toolCalls || []).map((tc) =>
+                    tc.toolCallId === payload.toolCallId
+                      ? {
+                          ...tc,
+                          pdbPayload: {
+                            pdbString: payload.pdbString,
+                            title: payload.title,
+                            geneSymbol: payload.geneSymbol,
+                            source: payload.source || null,
+                          },
+                        }
+                      : tc,
+                  );
+                  return [...prev.slice(0, -1), updated];
+                });
+              } else if (eventName === "done") {
+                const doneData = data as {
+                  sessionId?: string;
+                  latencyMs?: number;
+                  tokens?: unknown;
+                };
+                if (doneData.sessionId) {
+                  setActiveSessionId(doneData.sessionId);
+                  setSessions((prev) => {
+                    const exists = prev.some((s) => s.id === doneData.sessionId);
+                    if (exists) return prev;
+                    return [
+                      {
+                        id: doneData.sessionId!,
+                        title: activeVariant
+                          ? `Chat about ${activeVariant.geneSymbol}`
+                          : "General genomics chat",
+                        updatedAt: new Date().toISOString(),
+                        reportGeneSymbol: activeVariant?.geneSymbol || null,
+                      },
+                      ...prev,
+                    ];
+                  });
+                }
+              } else if (eventName === "error") {
+                throw new Error(String(data.error || "Streaming error"));
+              }
+            } catch (parseErr) {
+              // Log parse failures for debugging — previously silently swallowed
+              console.warn(`[ChatSidePanel] SSE parse failed for event "${eventName}":`, dataStr?.substring(0, 200), parseErr);
+            }
+          } // end for eventBlock
+        } // end while loop
 
         // Mark streaming complete
         setMessages((prev) => {

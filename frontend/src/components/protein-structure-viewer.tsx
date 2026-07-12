@@ -12,10 +12,18 @@ import {
   EyeOff,
 } from "lucide-react";
 
+// Standard amino acids + common solvent/ions — used to distinguish protein from ligand atoms
+const STANDARD_AMINO_ACIDS = [
+  "ALA","ARG","ASN","ASP","CYS","GLN","GLU","GLY","HIS","ILE","LEU","LYS","MET",
+  "PHE","PRO","SER","THR","TRP","TYR","VAL","HOH","WAT","NA","CL","K","MG","CA","ZN","FE",
+];
+
 interface ProteinStructureViewerProps {
-  uniprotId: string;
+  uniprotId?: string; // Made optional — when pdbString is provided, uniprotId is not needed
   geneSymbol: string;
   variantAA?: number | null;
+  pdbString?: string | null; // NEW: Accept raw PDB from chatbot tools (ESMFold, AlphaFold DB)
+  source?: "alphafold" | "pdb_experimental" | null; // Distinguish experimental PDB from AlphaFold
   className?: string;
 }
 
@@ -33,6 +41,8 @@ export function ProteinStructureViewer({
   uniprotId,
   geneSymbol,
   variantAA,
+  pdbString,
+  source = null,
   className = "",
 }: ProteinStructureViewerProps) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -41,37 +51,48 @@ export function ProteinStructureViewer({
   const [error, setError] = useState<string | null>(null);
   const [pdbData, setPdbData] = useState<string | null>(null);
   const [showVariant, setShowVariant] = useState(true);
+  const [showFullProtein, setShowFullProtein] = useState(false);
   const [variantPlddt, setVariantPlddt] = useState<number | null>(null);
+  const [isExperimental, setIsExperimental] = useState(false);
 
-  // Fetch PDB file from AlphaFold
+  // Load PDB data — either from in-memory pdbString (chatbot) or via proxy fetch (report)
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
 
-    async function fetchPdb() {
+    async function loadData() {
       try {
-        const url = getPdbProxyUrl(uniprotId);
-        const response = await fetch(url, {
-          signal: AbortSignal.timeout(15000),
-        });
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
-          throw new Error(err.error || `Structure not found for ${uniprotId}`);
+        let text: string | null = pdbString || null;
+        let format = "pdb";
+
+        // If no in-memory string, fall back to fetching via proxy (original behavior)
+        if (!text && uniprotId) {
+          const url = getPdbProxyUrl(uniprotId);
+          const response = await fetch(url, {
+            signal: AbortSignal.timeout(15000),
+          });
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.error || `Structure not found for ${uniprotId}`);
+          }
+
+          // Get format from headers
+          format = response.headers.get("X-Model-Format") || "PDB";
+          const confidence = response.headers.get("X-Confidence-Score");
+          (window as WindowWithPdb).__pdbConfidence = confidence;
+
+          text = await response.text();
+        } else if (!text) {
+          throw new Error("No structure data provided");
         }
 
-        // Get format from headers
-        const format = response.headers.get("X-Model-Format") || "PDB";
-        const confidence = response.headers.get("X-Confidence-Score");
-
-        const text = await response.text();
         if (cancelled) return;
         setPdbData(text);
 
         // Store format for viewer initialization
         (window as WindowWithPdb).__pdbFormat =
           format.toLowerCase() === "mmcif" ? "mmcif" : "pdb";
-        (window as WindowWithPdb).__pdbConfidence = confidence;
       } catch (err) {
         if (cancelled) return;
         setError(
@@ -81,11 +102,11 @@ export function ProteinStructureViewer({
       }
     }
 
-    fetchPdb();
+    loadData();
     return () => {
       cancelled = true;
     };
-  }, [uniprotId]);
+  }, [uniprotId, pdbString]);
 
   // Initialize 3Dmol viewer when PDB data is ready
   useEffect(() => {
@@ -108,8 +129,7 @@ export function ProteinStructureViewer({
         }
 
         const element = containerRef.current;
-        const config = { backgroundColor: "white" };
-        const viewer = $3Dmol.createViewer(element, config);
+        const viewer = $3Dmol.createViewer(element, { backgroundColor: "white" });
         if (!viewer) throw new Error("Failed to create 3Dmol viewer");
 
         viewerRef.current = viewer;
@@ -118,59 +138,65 @@ export function ProteinStructureViewer({
         const format = (window as WindowWithPdb).__pdbFormat || "pdb";
         const model = viewer.addModel(pdbData, format);
 
-        // ── pLDDT Confidence Coloring ──
-        // AlphaFold stores per-residue confidence (pLDDT) in the B-factor column
-        // Color scheme: Very high (>90) = dark blue, High (70-90) = light blue,
-        // Low (50-70) = yellow, Very low (<50) = orange/red
-        viewer.setStyle(
-          {},
-          {
-            cartoon: {
-              colorscheme: {
-                prop: "b",
-                gradient: "roygb",
-                min: 50,
-                max: 100,
-              },
-            },
-          },
-        );
-
-        // Alternative: custom color function for discrete pLDDT bins
-        // This gives clinicians the standard AlphaFold color scheme
-        const plddtColors: Record<number, string> = {};
-        const atoms = model.selectedAtoms({});
-        for (const atom of atoms) {
-          const plddt = atom.b || 0; // B-factor = pLDDT
-          let color: string;
-          if (plddt >= 90)
-            color = "#0053D9"; // Very high (dark blue)
-          else if (plddt >= 70)
-            color = "#65CBF3"; // High (light blue)
-          else if (plddt >= 50)
-            color = "#FFDB13"; // Low (yellow)
-          else color = "#FF7D45"; // Very low (orange)
-
-          if (atom.serial != null) {
-            plddtColors[atom.serial] = color;
-          }
+        // ── Determine if this is an experimental PDB or AlphaFold ──
+        const hetatmAtoms = model.selectedAtoms({ hetflag: true } as unknown as Record<string, unknown>);
+        const isExperimentalPdb = source === "pdb_experimental" || hetatmAtoms.length > 0;
+        setIsExperimental(isExperimentalPdb);
+        
+        if (isExperimentalPdb) {
+          viewer.setBackgroundColor("#F8F9FA", 0);
         }
 
-        // Apply pLDDT coloring
-        viewer.setStyle(
-          {},
-          {
-            cartoon: {
-              colorfunc: (atom: { b?: number }) => {
-                const plddt = atom.b || 0;
-                if (plddt >= 90) return "#0053D9";
-                if (plddt >= 70) return "#65CBF3";
-                if (plddt >= 50) return "#FFDB13";
-                return "#FF7D45";
+        if (isExperimentalPdb) {
+          // STEP 1: Hide ONLY waters and common ions
+          const solventResnames = ["HOH", "WAT", "MG", "CL", "NA", "CA", "SO4", "PO4", "GOL", "EDO", "PEG"];
+          for (const res of solventResnames) {
+            viewer.setStyle({ resn: res, hetflag: true } as never, { hidden: true } as never);
+          }
+
+          // STEP 2: Style the protein (Solid Royal Blue Ribbon — high contrast on light background)
+          viewer.setStyle({ hetflag: false } as never, { 
+            cartoon: { color: "#1D4ED8", opacity: 1.0 },
+          });
+
+          // STEP 3: Render the Drug Sticks (Jmol element colors: C=grey, O=red, N=blue)
+          viewer.setStyle(
+            { hetflag: true } as never, 
+            { 
+              stick: { 
+                radius: 0.6,
+                colorscheme: "Jmol", 
+                opacity: 1.0,
               },
             },
-          },
-        );
+          );
+
+          // STEP 4: Add a soft translucent surface (Modern Pharma aesthetic)
+          viewer.addSurface(
+            $3Dmol.SurfaceType.VDW,
+            { 
+              opacity: 0.35, 
+              color: "#F472B6",
+            } as never,
+            { hetflag: true } as never,
+          );
+        } else {
+          // AlphaFold: Color by pLDDT (B-factor)
+          viewer.setStyle(
+            { resn: { $in: STANDARD_AMINO_ACIDS } } as never,
+            {
+              cartoon: {
+                colorfunc: (atom: { b?: number }) => {
+                  const plddt = atom.b || 0;
+                  if (plddt >= 90) return "#0053D9";
+                  if (plddt >= 70) return "#65CBF3";
+                  if (plddt >= 50) return "#FFDB13";
+                  return "#FF7D45";
+                },
+              },
+            },
+          );
+        }
 
         // If variant position is known, highlight it and extract pLDDT
         if (variantAA && showVariant) {
@@ -181,10 +207,18 @@ export function ProteinStructureViewer({
             setVariantPlddt(Math.round(plddt));
           }
 
-          // Highlight the variant residue as spheres
+          // Highlight the variant residue — larger sphere for big proteins
           const selection = { resi: variantAA };
-          viewer.addStyle(selection, { sphere: { radius: 0.8, color: "red" } });
-          viewer.addStyle(selection, { stick: { radius: 0.3, color: "red" } });
+          const allProteinAtoms = model.selectedAtoms({});
+          const sphereRadius = allProteinAtoms.length > 2000 ? 2.5 : 0.8;
+          const stickRadius = allProteinAtoms.length > 2000 ? 0.5 : 0.3;
+          
+          viewer.addStyle(selection, { 
+            sphere: { radius: sphereRadius, color: "red" } 
+          });
+          viewer.addStyle(selection, { 
+            stick: { radius: stickRadius, color: "red" } 
+          });
 
           // Label the residue
           viewer.addLabel(
@@ -201,10 +235,52 @@ export function ProteinStructureViewer({
           );
         }
 
-        // Zoom to fit
-        viewer.zoomTo();
-        viewer.render();
+        // ── SMART ZOOM: Focus on variant neighborhood, hide disordered noise ──
+        
+        // STEP 1: Hide very low confidence regions (pLDDT < 50) for large proteins
+        const allAtoms = model.selectedAtoms({});
+        const isLargeProtein = allAtoms.length > 2000; // ~500+ residues
+        
+        if (isLargeProtein && !isExperimentalPdb) {
+          // Hide disordered spaghetti (pLDDT < 50)
+          viewer.setStyle(
+            { bmax: 49 } as never,
+            { cartoon: { opacity: 0.0 } } as never
+          );
+        }
 
+        // STEP 2: Zoom to variant neighborhood instead of whole protein
+        if (variantAA && showVariant) {
+          // Show ±80 residues around the variant for domain context
+          const windowSize = 80;
+          const rangeStart = Math.max(1, variantAA - windowSize);
+          const rangeEnd = variantAA + windowSize;
+
+          // Fade out residues outside the focus window (subtle, not hidden)
+          viewer.setStyle(
+            { resi: { $lt: rangeStart } } as never,
+            { cartoon: { opacity: 0.15 } } as never
+          );
+          viewer.setStyle(
+            { resi: { $gt: rangeEnd } } as never,
+            { cartoon: { opacity: 0.15 } } as never
+          );
+
+          // Zoom tightly to the variant neighborhood
+          viewer.zoomTo({
+            resi: { $gte: rangeStart, $lte: rangeEnd }
+          } as never);
+
+        } else if (isLargeProtein && !isExperimentalPdb) {
+          // No variant specified but protein is large — zoom to highest confidence region
+          viewer.zoomTo({ bmin: 70 } as never);
+          
+        } else {
+          // Small protein or experimental structure — zoom to fit all
+          viewer.zoomTo();
+        }
+
+        viewer.render();
         setLoading(false);
       } catch (err) {
         if (cancelled) return;
@@ -219,7 +295,7 @@ export function ProteinStructureViewer({
     return () => {
       cancelled = true;
     };
-  }, [pdbData, variantAA, geneSymbol, showVariant]);
+  }, [pdbData, variantAA, geneSymbol, showVariant, source]);
 
   // Handle zoom controls
   const handleZoomIn = () => {
@@ -259,6 +335,37 @@ export function ProteinStructureViewer({
     setShowVariant((v) => !v);
   };
 
+  const handleToggleFullProtein = () => {
+    const viewer = viewerRef.current as {
+      zoomTo?: (sel?: unknown) => void;
+      setStyle?: (sel: unknown, style: unknown) => void;
+      render?: () => void;
+    } | null;
+    
+    if (!viewer?.setStyle || !viewer?.zoomTo || !viewer?.render) return;
+
+    if (showFullProtein) {
+      // Switching back to focused view — re-run focus logic
+      if (variantAA) {
+        const windowSize = 80;
+        const rangeStart = Math.max(1, variantAA - windowSize);
+        const rangeEnd = variantAA + windowSize;
+        
+        // Restore fading
+        viewer.setStyle({ resi: { $lt: rangeStart } } as never, { cartoon: { opacity: 0.15 } } as never);
+        viewer.setStyle({ resi: { $gt: rangeEnd } } as never, { cartoon: { opacity: 0.15 } } as never);
+        viewer.zoomTo({ resi: { $gte: rangeStart, $lte: rangeEnd } } as never);
+      }
+    } else {
+      // Show full protein — restore all opacities and zoom out
+      viewer.setStyle({} as never, { cartoon: { opacity: 1.0 } } as never);
+      viewer.zoomTo();
+    }
+    
+    viewer.render();
+    setShowFullProtein((v) => !v);
+  };
+
   if (error) {
     return (
       <div
@@ -285,6 +392,7 @@ export function ProteinStructureViewer({
               >
                 Retry
               </button>
+              {uniprotId && (
               <a
                 href={`https://alphafold.ebi.ac.uk/entry/${uniprotId}`}
                 target="_blank"
@@ -293,6 +401,7 @@ export function ProteinStructureViewer({
               >
                 View on AlphaFold DB →
               </a>
+              )}
             </div>
           </div>
         </div>
@@ -312,8 +421,10 @@ export function ProteinStructureViewer({
             <span className="text-xs font-semibold text-slate-700">
               3D Protein Structure
             </span>
-            <span className="ml-1.5 text-[10px] text-slate-400">
-              AlphaFold DB v4 · {geneSymbol}
+            <span className="ml-1.5 text-[10px] text-slate-700 font-medium">
+              {source === "pdb_experimental" 
+                ? `Experimental Structure (PDB) · ${geneSymbol}` 
+                : `AlphaFold DB v4 · ${geneSymbol}`}
             </span>
           </div>
         </div>
@@ -322,19 +433,18 @@ export function ProteinStructureViewer({
             <button
               onClick={handleToggleVariant}
               className={`rounded-md p-1.5 transition-colors ${showVariant ? "bg-red-50 text-red-600" : "bg-slate-50 text-slate-400"}`}
-              title={
-                showVariant
-                  ? "Hide variant highlight"
-                  : "Show variant highlight"
-              }
+              title={showVariant ? "Hide variant highlight" : "Show variant highlight"}
             >
-              {showVariant ? (
-                <Eye className="h-3.5 w-3.5" />
-              ) : (
-                <EyeOff className="h-3.5 w-3.5" />
-              )}
+              {showVariant ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
             </button>
           )}
+          <button
+            onClick={handleToggleFullProtein}
+            className={`rounded-md p-1.5 transition-colors ${showFullProtein ? "bg-indigo-50 text-indigo-600" : "bg-slate-50 text-slate-400"}`}
+            title={showFullProtein ? "Focus on variant" : "Show full protein"}
+          >
+            <Dna className="h-3.5 w-3.5" />
+          </button>
           <button
             onClick={handleZoomIn}
             className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
@@ -365,19 +475,25 @@ export function ProteinStructureViewer({
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/90">
             <Loader2 className="mb-2 h-8 w-8 animate-spin text-indigo-500" />
             <span className="text-xs text-slate-500">
-              Loading AlphaFold structure…
+              {source === "pdb_experimental" ? "Loading experimental structure…" : "Loading AlphaFold structure…"}
             </span>
           </div>
         )}
         <div
           ref={containerRef}
-          style={{ width: "100%", height: "380px", position: "relative" }}
+          style={{ 
+            width: "100%", 
+            height: "380px", 
+            position: "relative", 
+            backgroundColor: isExperimental ? "#F8F9FA" : "white",
+          }}
         />
       </div>
 
       {/* Footer info */}
       <div className="space-y-2 border-t border-slate-100 px-4 py-2.5">
-        {/* pLDDT Legend */}
+        {/* pLDDT Legend — only for AlphaFold structures */}
+        {source !== "pdb_experimental" && (
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-[10px] font-medium text-slate-500">
             pLDDT Confidence:
@@ -411,6 +527,7 @@ export function ProteinStructureViewer({
             <span className="text-slate-600">Very low (&lt;50)</span>
           </span>
         </div>
+        )}
 
         {/* Variant-specific pLDDT */}
         <div className="flex items-center justify-between">
@@ -448,6 +565,16 @@ export function ProteinStructureViewer({
               </span>
             )}
           </div>
+          {source === "pdb_experimental" ? (
+          <a
+            href={`https://www.rcsb.org/structure/${geneSymbol}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-indigo-500 underline hover:text-indigo-700"
+          >
+            RCSB PDB ↗
+          </a>
+          ) : uniprotId ? (
           <a
             href={`https://alphafold.ebi.ac.uk/entry/${uniprotId}`}
             target="_blank"
@@ -456,6 +583,7 @@ export function ProteinStructureViewer({
           >
             AlphaFold:{uniprotId} ↗
           </a>
+          ) : null}
         </div>
       </div>
     </div>

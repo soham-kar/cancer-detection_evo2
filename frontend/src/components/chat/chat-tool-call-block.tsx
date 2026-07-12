@@ -1,12 +1,26 @@
 "use client";
 
-import { useState } from "react";
+import { useState, lazy, Suspense } from "react";
 import { Wrench, ChevronDown, ChevronUp, Loader2, CheckCircle, XCircle } from "lucide-react";
 import { cn } from "~/lib/utils";
+
+// Lazy-load the 3D viewer — it's heavy (3Dmol.js), so only load when needed
+const ProteinStructureViewer = lazy(() =>
+  import("~/components/protein-structure-viewer").then((m) => ({
+    default: m.ProteinStructureViewer,
+  })),
+);
 
 // =============================================================================
 // ChatToolCallBlock — Displays a tool call made by the AI chatbot
 // =============================================================================
+
+export interface PdbPayload {
+  pdbString: string;
+  title: string;
+  geneSymbol: string;
+  source?: "alphafold" | "pdb_experimental" | null;
+}
 
 export interface ToolCallData {
   toolCallId: string;
@@ -16,6 +30,7 @@ export interface ToolCallData {
   result?: Record<string, unknown>;
   error?: string;
   executionTimeMs?: number;
+  pdbPayload?: PdbPayload; // NEW: Raw PDB for 3D viewer rendering
 }
 
 interface ChatToolCallBlockProps {
@@ -95,6 +110,29 @@ export function ChatToolCallBlock({ toolCall }: ChatToolCallBlockProps) {
           )}
         </div>
       </div>
+
+      {/* 3D Structure Viewer — rendered when PDB payload is available */}
+      {toolCall.status === "completed" && toolCall.pdbPayload && (
+        <div className="mt-2">
+          <Suspense
+            fallback={
+              <div className="flex items-center justify-center rounded-lg border border-slate-200 bg-white p-4">
+                <Loader2 className="h-6 w-6 animate-spin text-indigo-500" />
+                <span className="ml-2 text-xs text-slate-500">Loading 3D viewer…</span>
+              </div>
+            }
+          >
+            <ProteinStructureViewer
+              geneSymbol={toolCall.pdbPayload.geneSymbol}
+              pdbString={toolCall.pdbPayload.pdbString}
+              source={toolCall.pdbPayload.source || null}
+            />
+          </Suspense>
+          <p className="mt-1 text-center text-[10px] italic text-slate-400">
+            {toolCall.pdbPayload.title} · Interactive 3D Model
+          </p>
+        </div>
+      )}
 
       {/* Expandable details */}
       <button
