@@ -166,6 +166,38 @@ export function ChatSidePanel({ isOpen, onClose, isExpanded, onToggleExpand }: C
         const decoder = new TextDecoder();
         let buffer = "";
 
+        // ── RAF-batched streaming: accumulate deltas and flush at 60fps ──
+        // Prevents jank from rapid SSE chunks triggering too many re-renders
+        let contentBuffer = "";
+        let reasoningBuffer = "";
+        let rafId: number | null = null;
+
+        function flushBuffers() {
+          rafId = null;
+          if (!contentBuffer && !reasoningBuffer) return;
+
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (!last || last.role !== "assistant") return prev;
+            const updated = { ...last };
+            if (contentBuffer) {
+              updated.content = (updated.content || "") + contentBuffer;
+              contentBuffer = "";
+            }
+            if (reasoningBuffer) {
+              updated.reasoning = (updated.reasoning || "") + reasoningBuffer;
+              reasoningBuffer = "";
+            }
+            return [...prev.slice(0, -1), updated];
+          });
+        }
+
+        function scheduleFlush() {
+          if (rafId === null) {
+            rafId = requestAnimationFrame(flushBuffers);
+          }
+        }
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -198,22 +230,12 @@ export function ChatSidePanel({ isOpen, onClose, isExpanded, onToggleExpand }: C
 
               if (eventName === "reasoning_delta") {
                 const delta = String(data.delta || "");
-                setMessages((prev) => {
-                  const last = prev[prev.length - 1];
-                  if (!last || last.role !== "assistant") return prev;
-                  const updated = { ...last };
-                  updated.reasoning = (updated.reasoning || "") + delta;
-                  return [...prev.slice(0, -1), updated];
-                });
+                reasoningBuffer += delta;
+                scheduleFlush();
               } else if (eventName === "content_delta") {
                 const delta = String(data.delta || "");
-                setMessages((prev) => {
-                  const last = prev[prev.length - 1];
-                  if (!last || last.role !== "assistant") return prev;
-                  const updated = { ...last };
-                  updated.content = (updated.content || "") + delta;
-                  return [...prev.slice(0, -1), updated];
-                });
+                contentBuffer += delta;
+                scheduleFlush();
               } else if (eventName === "content_clear") {
                 // Clear the assistant content — used when fallback parser
                 // detected a tool call in the streamed text and needs to
@@ -339,6 +361,28 @@ export function ChatSidePanel({ isOpen, onClose, isExpanded, onToggleExpand }: C
             }
           } // end for eventBlock
         } // end while loop
+
+        // ── Flush any remaining buffered content before marking stream complete ──
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        if (contentBuffer || reasoningBuffer) {
+          setMessages((prev) => {
+            const last = prev[prev.length - 1];
+            if (!last || last.role !== "assistant") return prev;
+            const updated = { ...last };
+            if (contentBuffer) {
+              updated.content = (updated.content || "") + contentBuffer;
+              contentBuffer = "";
+            }
+            if (reasoningBuffer) {
+              updated.reasoning = (updated.reasoning || "") + reasoningBuffer;
+              reasoningBuffer = "";
+            }
+            return [...prev.slice(0, -1), updated];
+          });
+        }
 
         // Mark streaming complete
         setMessages((prev) => {

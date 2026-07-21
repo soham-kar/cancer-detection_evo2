@@ -1,11 +1,22 @@
 "use client";
 
+import { useDeferredValue } from "react";
 import { Bot, User, Brain } from "lucide-react";
 import { cn } from "~/lib/utils";
 import { Avatar, AvatarFallback } from "~/components/ui/avatar";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { ChatToolCallBlock, type ToolCallData } from "./chat-tool-call-block";
+
+// =============================================================================
+// StreamingCursor — blinking cursor at end of streaming text
+// =============================================================================
+
+function StreamingCursor() {
+  return (
+    <span className="animate-blink inline-block h-[1.1em] w-[2px] bg-[#de8246] align-text-bottom ml-0.5" />
+  );
+}
 
 // =============================================================================
 // ChatMessage - Individual message bubble with always-visible reasoning
@@ -28,6 +39,13 @@ interface ChatMessageProps {
 export function ChatMessage({ message }: ChatMessageProps) {
   const isUser = message.role === "user";
 
+  // Defer content rendering during streaming to prevent jank from rapid SSE updates
+  const deferredContent = useDeferredValue(message.content);
+  const deferredReasoning = useDeferredValue(message.reasoning);
+  const isStale = message.isStreaming && (
+    deferredContent !== message.content || deferredReasoning !== message.reasoning
+  );
+
   return (
     <div
       className={cn(
@@ -47,7 +65,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
 
       <div
         className={cn(
-          "flex max-w-[85%] flex-col gap-1.5 rounded-2xl px-4 py-2.5 text-sm",
+          "flex max-w-[85%] flex-col gap-1.5 rounded-2xl px-4 py-2.5 text-sm transition-opacity duration-150",
+          isStale ? "opacity-90" : "opacity-100",
           isUser
             ? "bg-[#3c4f3d] text-white"
             : "border border-[#3c4f3d]/10 bg-white text-[#3c4f3d]",
@@ -61,10 +80,8 @@ export function ChatMessage({ message }: ChatMessageProps) {
               {message.isStreaming ? "Thinking..." : "Chain of Thought"}
             </div>
             <div className="text-xs leading-relaxed text-[#3c4f3d]/70">
-              {message.reasoning}
-              {message.isStreaming && (
-                <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#de8246]" />
-              )}
+              {deferredReasoning}
+              {message.isStreaming && <StreamingCursor />}
             </div>
           </div>
         )}
@@ -85,11 +102,9 @@ export function ChatMessage({ message }: ChatMessageProps) {
         ) : (
           <div className="chat-markdown leading-relaxed">
             <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {message.content || ""}
+              {deferredContent || ""}
             </ReactMarkdown>
-            {message.isStreaming && !message.reasoning && (
-              <span className="ml-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-[#de8246]" />
-            )}
+            {message.isStreaming && !message.reasoning && <StreamingCursor />}
           </div>
         )}
       </div>

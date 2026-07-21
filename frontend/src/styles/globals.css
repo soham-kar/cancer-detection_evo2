@@ -185,6 +185,28 @@
 }
 
 /* =============================================================================
+   Chat Streaming Animations
+   ============================================================================= */
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+.animate-blink {
+  animation: blink 0.8s ease-in-out infinite;
+}
+
+/* Prevent layout jumps during streaming */
+.chat-markdown > *:last-child {
+  min-height: 1.5em;
+}
+
+/* Smooth scroll for new content */
+.chat-message-list {
+  scroll-behavior: smooth;
+}
+
+/* =============================================================================
    Chat Markdown Styling
    ============================================================================= */
 .chat-markdown {
