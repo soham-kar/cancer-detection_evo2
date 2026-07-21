@@ -1232,6 +1232,64 @@ class Evo2Model:
                 ism_result=ism_result
             )
             result["acmg_criteria"] = acmg_criteria
+            
+            # ── ISM Concordance Factor: Adjust confidence based on Evo2-ISM agreement ──
+            # When Evo2 and ISM agree (both indicate pathogenic or both indicate benign),
+            # confidence is boosted by 10%. When they disagree, confidence is reduced by 10%.
+            if ism_result and "summary" in ism_result:
+                ism_summary = ism_result["summary"]
+                f_c = ism_summary.get("constrained_positions", 0) / max(1, ism_summary.get("total_positions_scanned", 1))
+                ism_says_constrained = f_c > 0.2
+                
+                # Get gene threshold to determine Evo2 direction
+                gene_params = self._get_gene_threshold(gene_symbol)
+                gene_threshold = gene_params.get("threshold", -0.005)
+                evo2_says_pathogenic = delta_score < gene_threshold
+                
+                # Determine concordance
+                if evo2_says_pathogenic and ism_says_constrained:
+                    # Both indicate pathogenic → concordant
+                    concordance_label = "concordant"
+                    confidence_multiplier = 1.10
+                    concordance_note = (
+                        f"Evo2 predicts pathogenic (Δ={delta_score:.6f} < τ={gene_threshold}) "
+                        f"and ISM confirms constraint (f_c={f_c:.2f}) — signals agree"
+                    )
+                elif not evo2_says_pathogenic and not ism_says_constrained:
+                    # Both indicate benign → concordant
+                    concordance_label = "concordant"
+                    confidence_multiplier = 1.10
+                    concordance_note = (
+                        f"Evo2 predicts benign (Δ={delta_score:.6f} ≥ |τ|={abs(gene_threshold)}) "
+                        f"and ISM confirms permissive region (f_c={f_c:.2f}) — signals agree"
+                    )
+                else:
+                    # Signals disagree → discordant
+                    concordance_label = "discordant"
+                    confidence_multiplier = 0.90
+                    concordance_note = (
+                        f"Evo2 predicts {'pathogenic' if evo2_says_pathogenic else 'benign'} "
+                        f"but ISM indicates {'constrained' if ism_says_constrained else 'permissive'} "
+                        f"region (f_c={f_c:.2f}) — signals disagree"
+                    )
+                
+                # Apply the adjustment
+                adjusted_confidence = min(1.0, max(0.0, result["classification_confidence"] * confidence_multiplier))
+                logger.info(
+                    f"ISM concordance: {concordance_label} (f_c={f_c:.2f}, "
+                    f"confidence {result['classification_confidence']:.3f} → {adjusted_confidence:.3f})"
+                )
+                result["classification_confidence"] = adjusted_confidence
+                
+                # Store concordance metadata for report
+                result["ism_concordance"] = {
+                    "label": concordance_label,
+                    "f_c": round(f_c, 4),
+                    "evo2_direction": "pathogenic" if evo2_says_pathogenic else "benign",
+                    "ism_direction": "constrained" if ism_says_constrained else "permissive",
+                    "confidence_multiplier": confidence_multiplier,
+                    "note": concordance_note,
+                }
         
         # Fetch knowledge graph (gene-disease-drug associations)
         if gene_symbol:
@@ -1929,17 +1987,67 @@ Remember: Cite sources, be precise, and include the disclaimer. Acknowledge any 
             )
         }
         
-        # ─── ISM-based spatial constraint evidence (novel criterion) ───
-        ism_high = ism_result and ism_result.get("summary", {}).get("constraint_zone") == "high"
-        criteria["ISM_SPATIAL"] = {
-            "met": ism_high,
-            "strength": "Supporting (Research)" if ism_high else None,
-            "rationale": (
-                f"ISM scan reveals highly constrained microdomain — {ism_result['summary']['constrained_positions']}/{ism_result['summary']['total_positions_scanned']} positions under purifying selection"
-                if ism_high else
-                "ISM scan not performed or region shows low constraint"
-            )
-        }
+        # ─── ISM-based ACMG evidence modifier (PP3/BP4 strength adjustment) ───
+        # The ISM constraint ratio f_c modifies the strength of PP3 (pathogenic)
+        # and BP4 (benign) based on whether the variant resides in a constrained
+        # or permissive micro-environment. This replaces the previous standalone
+        # ISM_SPATIAL criterion with direct modification of existing ACMG codes.
+        if ism_result and "summary" in ism_result:
+            ism_summary = ism_result["summary"]
+            constrained = ism_summary.get("constrained_positions", 0)
+            total = ism_summary.get("total_positions_scanned", 1)
+            f_c = constrained / max(1, total)
+            ism_zone = ism_summary.get("constraint_zone", "low")
+
+            # ── Modify PP3 (pathogenic computational evidence) ──
+            if "PP3" in criteria and criteria["PP3"]["met"]:
+                pp3_strength = criteria["PP3"]["strength"]
+                if ism_zone == "high" and pp3_strength == "Supporting":
+                    # ISM confirms variant is in constrained region → upgrade PP3
+                    criteria["PP3"]["strength"] = "Moderate"
+                    criteria["PP3"]["rationale"] += (
+                        f" [Upgraded: ISM constraint ratio f_c={f_c:.2f} confirms "
+                        f"variant resides in highly constrained micro-environment "
+                        f"({constrained}/{total} positions under purifying selection)]"
+                    )
+                elif ism_zone == "low" and pp3_strength in ("Moderate", "Supporting"):
+                    # ISM contradicts PP3 → downgrade
+                    criteria["PP3"]["strength"] = "Not Met"
+                    criteria["PP3"]["met"] = False
+                    criteria["PP3"]["rationale"] += (
+                        f" [Downgraded: ISM constraint ratio f_c={f_c:.2f} indicates "
+                        f"variant is in evolutionarily permissive region "
+                        f"({constrained}/{total} positions constrained)]"
+                    )
+                # moderate ISM zone: no change to PP3 strength
+
+            # ── Modify BP4 (benign computational evidence) ──
+            if "BP4" in criteria and criteria["BP4"]["met"]:
+                bp4_strength = criteria["BP4"]["strength"]
+                if ism_zone == "high" and bp4_strength in ("Moderate", "Supporting"):
+                    # ISM contradicts benign classification → downgrade
+                    criteria["BP4"]["strength"] = "Not Met"
+                    criteria["BP4"]["met"] = False
+                    criteria["BP4"]["rationale"] += (
+                        f" [Downgraded: ISM f_c={f_c:.2f} contradicts benign classification "
+                        f"— variant in highly constrained region]"
+                    )
+                elif ism_zone == "low" and bp4_strength == "Supporting":
+                    # ISM confirms permissive region → upgrade BP4
+                    criteria["BP4"]["strength"] = "Moderate"
+                    criteria["BP4"]["rationale"] += (
+                        f" [Upgraded: ISM f_c={f_c:.2f} confirms permissive region "
+                        f"({constrained}/{total} positions constrained)]"
+                    )
+                # moderate ISM zone: no change to BP4 strength
+
+            # Store ISM metadata for report and concordance computation
+            criteria["_ism_metadata"] = {
+                "f_c": f_c,
+                "constraint_zone": ism_zone,
+                "constrained_positions": constrained,
+                "total_positions": total,
+            }
         
         # ─── Compute classification from met criteria ───
         met_criteria = {k: v for k, v in criteria.items() if v["met"]}
